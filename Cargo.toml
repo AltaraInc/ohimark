@@ -1,0 +1,25 @@
+[package]
+name = "merdoc"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Build and serve a repository's Markdown documentation with mdBook."
+
+[[bin]]
+name = "merdoc"
+path = "src/main.rs"
+
+[lib]
+name = "merdoc"
+path = "src/lib.rs"
+
+[dependencies]
+anyhow = "1.0.104"
+camino = "1.2.6"
+clap = { version = "4.6.7", features = ["derive", "env"] }
+command-group = "5.0.1"
+ignore = "0.4.30"
+lol_html = "3.0.1"
+percent-encoding = "2.3.2"
+signal-hook = { version = "0.4.4", features = ["iterator"] }
+tempfile = "3.27.0"

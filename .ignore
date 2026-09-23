@@ -1,0 +1,21 @@
+# rust
+target
+
+# misc
+.direnv
+.envrc
+
+# nix
+/result
+/result-*
+
+# os
+.DS_Store
+
+# vcs
+.pijul
+.git
+
+# ai
+.claude
+.codex
