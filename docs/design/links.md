@@ -1,8 +1,8 @@
-# Link and asset resolution
+# Links & Assets
 
 `ohimark` turns the relative references an author writes against Markdown *sources* into
 relative URLs that work between rendered *pages*. This document describes that algorithm.
-[Requirements](requirements.md) R2.7, R5.1–R5.4 and R6.1–R6.9 specify the behaviour it
+[Requirements](../requirements.md) R2.7, R5.1–R5.4 and R6.1–R6.9 specify the behaviour it
 must produce.
 
 ## Why it is needed

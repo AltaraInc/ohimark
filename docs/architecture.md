@@ -72,12 +72,13 @@ is what needs them.
 
 ## Rendering a page
 
-One pass over the Markdown event stream, with four interceptions:
+One pass over the Markdown event stream, with five interceptions:
 
 1. **Link and image tags** go to `links::resolve`. An image additionally registers a referenced asset, which is what causes that file to be copied.
 2. **Headings** receive an anchor identifier, slugged from the text and deduplicated within the page by a numeric suffix, and are recorded for the outline.
 3. **A fence tagged `mermaid`** is rendered to SVG, alongside the retained source.
 4. **Any other fence** becomes `<pre><code class="language-…">` with its content escaped and otherwise verbatim.
+5. **Task-list items** are emitted with a class on the `<li>` so the stylesheet can suppress the marker. This is determined by looking ahead, since the checkbox sits inside a paragraph in loose lists.
 
 `theme::shell` then wraps the result, taking the nav tree, the page's outline and its body.
 
@@ -103,8 +104,10 @@ Two phases fan out across `rayon`, and both are pure functions of their inputs:
 Everything order-sensitive stays ordered. `par_iter().map().collect()` preserves input
 order, so the page vector is deterministic regardless of thread scheduling. Collision
 detection, asset-reference merging and warning emission all run *after* their parallel
-phase, walking results in page order — so one tree always produces the same site and the
-same stderr, which is what R11.3 requires.
+phase, walking results in page order — a stable page order and stable stderr cost nothing
+once the parallel phase is over, and they keep diffs between builds readable. Discovery
+itself is already deterministically ordered (R1.6); this just carries that order through
+the rest of the pipeline.
 
 ## Output assembly
 
@@ -116,13 +119,12 @@ may sit inside `DIR`; discovery excludes it so a rebuild never ingests its own o
 
 | Crate | Used for |
 | --- | --- |
-| `clap` (derive, env) | command-line parsing |
+| `clap` (derive) | command-line parsing |
 | `ignore` | gitignore-aware walk; its `OverrideBuilder` also implements `--exclude` |
 | `camino` | UTF-8 paths end to end |
-| `anyhow` | error context |
 | `thiserror` | domain errors in `model` |
 | `pulldown-cmark` | CommonMark and GFM table parsing |
-| `merman` | Mermaid to SVG, in-process, pinned at `0.8.0-alpha.6` |
+| `merman` | Mermaid to SVG, in-process, required at `0.8.0-alpha.6` or compatible |
 | `rayon` | data parallelism across the read and render phases |
 | `percent-encoding` | href decoding and encoding |
 | `tempfile` | staging directory |
@@ -142,4 +144,4 @@ HTML; and `command-group` with `signal-hook`, which supervised the child process
 - **Only referenced assets are copied** — the render pass is what discovers references, so the asset set falls out of rendering rather than needing its own traversal. (R5)
 - **Stage then move** — the only way a failed build can leave `--out` untouched. (R10.2)
 - **One SVG per diagram** — a second themed render would double the build's most expensive step to save a colour-rewriting pass over its output. (R8.2)
-- **Parallel where it is pure, ordered where it is observable** — the expensive phases are independent per page, and every order-sensitive step is deferred until after them. (R11.3)
+- **Parallel where it is pure, ordered where it is observable** — the expensive phases are independent per page, and every order-sensitive step is deferred until after them, so builds stay easy to diff. (R1.6)

@@ -1,10 +1,9 @@
-{ lib, rustPlatform, makeWrapper, mdbook, mdbook-mermaid, static-web-server, watchexec }:
+{ lib, rustPlatform }:
 
 let
   manifest = lib.importTOML ../Cargo.toml;
   pname = manifest.package.name;
   version = manifest.package.version;
-  runtimeTools = [ mdbook mdbook-mermaid static-web-server watchexec ];
 in
 rustPlatform.buildRustPackage {
   inherit pname version;
@@ -17,17 +16,6 @@ rustPlatform.buildRustPackage {
   # `cargo-auditable` (used internally by `buildRustPackage`), so the
   # Polonius flag is set again here via RUSTFLAGS to reach the Nix build.
   env.RUSTFLAGS = "-Zpolonius=next";
-
-  # `mdbook`, `mdbook-mermaid`, `static-web-server`, and `watchexec` are not
-  # linked dependencies; they are external tools the binary shells out to at
-  # runtime (`build`/`serve`/`watch`), so they are provided via a wrapped
-  # `PATH` rather than `buildInputs`.
-  nativeBuildInputs = [ makeWrapper ];
-  nativeCheckInputs = runtimeTools;
-
-  postInstall = ''
-    wrapProgram $out/bin/${pname} --prefix PATH : ${lib.makeBinPath runtimeTools}
-  '';
 
   src = lib.fileset.toSource {
     root = ../.;

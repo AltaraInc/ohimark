@@ -98,20 +98,22 @@ atomic, observable from outside the tool, and paired with a way to verify it.
 | R7.5 | Raw inline and block HTML in a Markdown source passes through to the output verbatim. | Fixture containing a `<div>` and an inline `<kbd>`; assert both appear unescaped. |
 | R7.6 | Every page is a complete HTML document declaring its language, a UTF-8 charset, a viewport, and a `<title>` derived from R3. | Assert each of the four on a built page. |
 | R7.7 | A `mermaid` block that fails to render produces a warning on standard error naming the page, and falls back to rendering as an ordinary fenced code block. The build succeeds. | Fixture with a malformed diagram; assert one warning, a zero exit, and a `<pre><code>` fallback. |
+| R7.8 | A list item whose content begins with `[ ]` or `[x]` renders as a task-list item: a checkbox reflecting the marker's state, read-only so a reader cannot change it, with the item's own list marker suppressed. Task items nest, may appear in ordered lists, and may sit alongside plain items in the same list. | Fixture with `- [x] a`, `- [ ] b`, a nested `- [x] c`, `1. [ ] d` and a plain `- e`; assert a checked and an unchecked checkbox, that each carries `disabled`, and that the plain item has none. Load the page; assert no bullet or number is shown beside a task item. |
 
 ## R8 — Theme and client behaviour
 
 | ID | Requirement | How to verify |
 | --- | --- | --- |
-| R8.1 | The site offers a dark/light theme toggle. The chosen theme persists across page navigations and reloads; on first visit the operating system preference is honoured. | Toggle, navigate, reload, assert the theme holds; then clear storage and assert the system preference decides. |
+| R8.1 | The site offers a dark/light theme toggle. The chosen theme persists across page navigations and reloads for the remainder of the browsing session; on a first visit, and in a new session, the operating system preference is honoured. | Toggle, navigate and reload within one session; assert the theme holds. Start a fresh session; assert the system preference decides. |
 | R8.2 | Diagrams carry no theme of their own: each is rendered once, with its colours expressed as CSS custom properties, so it matches whichever theme is active without anything being rendered in the browser. | Toggle the theme on a diagram page with scripting disabled; assert the diagram's colours change. |
-| R8.3 | Each page shows an outline of its own headings, each linking to the corresponding anchor. A page with no headings shows no outline. | Assert one outline entry per heading and a working anchor; assert the outline is absent for a headingless page. |
+| R8.3 | Each page shows an outline of its own headings, each linking to the corresponding anchor. A page with no headings shows no outline. A heading containing a link contributes its text to the outline without that link, so each outline entry is a single anchor rather than one nested inside another. | Assert one outline entry per heading and a working anchor; assert the outline is absent for a headingless page. Fixture a heading containing a link; assert the outline entry carries the link's text with no nested anchor. |
 | R8.4 | At narrow viewport widths the sidebar collapses behind a control that opens and closes it. | Load a page at a narrow width; assert the sidebar is hidden and that the control toggles it. |
 | R8.5 | Sidebar nodes start expanded on every page load. Expansion state is not persisted across navigations or reloads. | Collapse a node, navigate to another page, and assert it is expanded again. |
-| R8.6 | With JavaScript enabled, each diagram offers a toggle between its rendered graphic and its source. The toggle applies to one diagram at a time and resets on navigation. | Toggle one of two diagrams to source view; assert only that one changed, then navigate away and back and assert both show graphics. |
+| R8.6 | With JavaScript enabled, each diagram offers an icon toggle between its rendered graphic and its source. The toggle applies to one diagram at a time and resets on navigation. | Toggle one of two diagrams to source view; assert only that one changed, then navigate away and back and assert both show graphics. |
 | R8.7 | The built site renders completely with no network access: every stylesheet, script, font and image it loads is served from the output itself, and no diagram-rendering runtime is shipped at all. | Grep the output for `http://` and `https://` in `src`, `href` and `url()` positions; assert none. Load a diagram page with networking disabled; assert it renders. |
 | R8.8 | With JavaScript disabled, a page's content, its diagrams, its sidebar links and its outline links remain readable and usable. | Load a page with scripting off; assert the content, diagrams, sidebar and outline are present and navigable. |
 | R8.9 | A diagram scales to the width of its container without JavaScript, and never makes the page scroll horizontally. | Load a diagram page 400px wide with scripting disabled; assert the diagram fits and the page has no horizontal scroll. |
+| R8.10 | With JavaScript enabled, every fenced code block and every diagram offers an icon copy control that puts the block's source text verbatim on the clipboard — for a diagram, its Mermaid source, not the rendered SVG. The reader gets visible confirmation that the copy happened. With JavaScript disabled, the control is absent, never present but inert. | Click the copy icon on a code block and on a diagram with scripting enabled; assert the clipboard holds the exact source text and a confirmation appears. Load the same page with scripting disabled; assert no copy control is present. |
 
 ## R9 — Command-line surface
 
@@ -140,7 +142,6 @@ atomic, observable from outside the tool, and paired with a way to verify it.
 | --- | --- | --- |
 | R11.1 | The built site is relocatable: no absolute path of `DIR`, of the output directory, or of any temporary directory appears anywhere in it, and every internal link is relative. | Grep the output for each path; assert no matches and no root-absolute internal href. |
 | R11.2 | The built site is usable both when served by any static file server and when opened directly from disk over `file://`. It requires no server-side logic, rewriting rules, or redirects. | Serve it and assert every page and asset loads; then open `index.html` from disk and navigate to a nested page. |
-| R11.3 | Two builds of an unchanged tree produce byte-identical output. | Build twice into separate directories; assert the trees are identical. |
 
 ## Non-requirements
 
@@ -155,14 +156,8 @@ The tool is not required to:
 - report a Markdown file that no other page links to — orphan pages are normal;
 - preserve the mtimes or ownership of copied files;
 - support Windows path semantics; paths are treated as POSIX throughout;
-- produce multi-language or versioned output.
-
-## Open questions
-
-These are unresolved. Each needs a decision before it can become a requirement,
-and the decision should be pinned by a test either way.
-
-1. **Diagram renderer determinism.** The Mermaid renderer is pinned at `merman` `0.8.0-alpha.6`. R11.3 makes its SVG output part of the site's contract, so a version bump that changes layout or geometry breaks byte-identical rebuilds of an unchanged tree. Decide whether that is an accepted cost of upgrading or whether rebuild identity is only promised within one pinned version.
+- produce multi-language or versioned output;
+- produce byte-identical output across builds of an unchanged tree — rebuild identity is not promised, which is what allows the diagram renderer to be upgraded freely.
 
 ## Traceability
 

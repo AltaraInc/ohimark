@@ -6,9 +6,11 @@ The directory structure is respected while conducting the directory traversal; d
 
 ## Rendering
 
-Each markdown file that is collected during the directory traversal will be translated into its' own HTML page. All the [basic syntax](https://www.markdownguide.org/basic-syntax), tables and mermaid diagrams will be supported.
+Each markdown file that is collected during the directory traversal will be translated into its' own HTML page. All the [basic syntax](https://www.markdownguide.org/basic-syntax), tables, [task lists](https://www.markdownguide.org/extended-syntax/#task-lists) and mermaid diagrams will be supported.
 
 Mermaid diagrams are rendered to SVG at build time by [`merman`](https://github.com/Latias94/merman), a headless Rust implementation of Mermaid. Nothing is fetched while building and no diagram runtime is shipped to the browser, so diagrams are visible even with JavaScript disabled.
+
+Task list items (`- [ ]` and `- [x]`) render as checkboxes reflecting the marker in the source. They are read-only: the rendered page always matches the Markdown it was built from, and ticking a box in a browser is not a way to edit the file.
 
 ## Usage
 
@@ -37,7 +39,7 @@ ohimark --out OUTDIR [--root FILENAME] [--exclude GLOB]... DIR
 
 - [Requirements](docs/requirements.md) — the behavioural specification, and the acceptance suite the implementation is built against.
 - [Architecture](docs/architecture.md) — the components and how they interact.
-- [Link and asset resolution](docs/link-rewriting.md) — how relative references between pages are resolved.
+- [Links & Assets](docs/design/links.md) — how relative references between pages are resolved.
 
 ## Development
 
@@ -52,6 +54,23 @@ nix run path:. -- --help
 nix flake check path:.
 nix develop path:.
 ```
+
+The repository's own Markdown can be rendered and served locally by `ohimark`
+itself, with `README.md` as the site's home page:
+
+```sh
+nix run path:.#docs            # render once, serve on http://127.0.0.1:8080
+nix run path:.#docs -- 9000    # the same, on port 9000
+nix run path:.#watchdocs       # serve, re-rendering as files change
+```
+
+`docs` renders the working tree into a cache directory and serves it with
+[`static-web-server`](https://static-web-server.net); `watchdocs` starts that
+server and uses [`watchexec`](https://watchexec.github.io) to re-render on
+every change. Both take the port to listen on as an optional argument,
+defaulting to 8080; `nix run` needs `--` before it. The cache directory is
+`$XDG_CACHE_HOME/ohimark/docs`, or `~/.cache/ohimark/docs` when that variable
+is unset; it is reused across runs, and `OHIMARK_DOCS_STATE` overrides it.
 
 ### Nightly toolchain and Polonius
 
