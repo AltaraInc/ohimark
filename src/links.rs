@@ -191,6 +191,7 @@ mod tests {
             pages,
             by_source,
             nav: Vec::new(),
+            todo: None,
         }
     }
 

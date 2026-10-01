@@ -17,6 +17,8 @@ flowchart TD
   WALK -->|"ordered source set"| READ["Read files and extract titles<br/>(parallel)"]
   READ -->|"titles and retained bytes"| MAP["Build source-to-target map,<br/>detect collisions, build nav tree"]
   MAP -->|"Site: pages, map, nav"| REND["Render pages<br/>(parallel)"]
+  REND -->|"with --todo"| TODO["Collect open tasks (parallel),<br/>re-render the TODO page"]
+  TODO --> STAGE
   REND -->|"html, asset references, outline"| STAGE["Stage in temp dir outside DIR"]
   STAGE -->|"referenced files only"| COPY["Copy assets"]
   COPY -->|"bundled css and js"| TH["Write theme assets"]
@@ -37,6 +39,9 @@ graph LR
   lib -->|"discovers and plans"| plan
   lib -->|"renders each page"| render
   lib -->|"assembles output"| emit
+  lib -->|"collects open tasks"| todo
+  todo -->|"resolves hrefs"| links
+  todo -->|"re-renders the TODO page"| render
   cli -->|"produces Config"| model
   plan -->|"builds Site"| model
   plan -->|"casefolds paths"| links
@@ -51,12 +56,13 @@ graph LR
 | `cli` | clap definitions; validates and normalises argv into a `Config` | `Args`, `Config` |
 | `model` | shared domain types, errors, and the warning sink; no I/O | `SourceRel`, `TargetPath`, `Page`, `Site`, `NavNode`, `Warnings` |
 | `plan` | ignore-aware walk, `--exclude` overrides, source-to-target mapping, collision detection, root-file resolution, titles, nav tree | `plan()` |
-| `render` | Markdown event stream to HTML; anchors, outline, code fences, Mermaid | `render_page()` |
+| `render` | Markdown event stream to HTML; anchors, outline, code fences, Mermaid | `render_page()`, `render_part()` |
 | `links` | relative reference resolution, plus the POSIX path helpers it needs | `resolve()`, `fold()`, `normpath()`, `relpath()` |
 | `theme` | page shell, sidebar, outline rail; bundled CSS and JS | `shell()`, `ASSETS` |
 | `emit` | temp staging, asset copy, move into `--out` | `emit()` |
+| `todo` | `--todo`: lifts open task items out of every page and appends them to the root TODO page | `collect()`, `render_page()` |
 
-Seven modules and a `lib.rs` that sequences them. Discovery lives in `plan` because a
+Eight modules and a `lib.rs` that sequences them. Discovery lives in `plan` because a
 source set is only useful once it has been mapped to targets; Mermaid lives in `render`
 because it is one more fence handler; the path helpers live in `links` because resolution
 is what needs them.
@@ -66,7 +72,7 @@ is what needs them.
 - `SourceRel` — a `DIR`-relative POSIX path to an input file.
 - `TargetPath` — an output-relative path, ending in `.html` for a page.
 - `Page { source, target, title }` — one rendered document.
-- `Site { pages, by_source, nav }` — `by_source` is the casefolded map `links` resolves against.
+- `Site { pages, by_source, nav, todo }` — `by_source` is the casefolded map `links` resolves against; `todo` is the index of the root TODO page when `--todo` is set.
 - `NavNode` — either a page entry or a group carrying a label, an optional link, and children.
 - `Warnings` — an ordered sink; everything in it reaches stderr and nothing in it affects the exit code.
 
@@ -82,6 +88,40 @@ One pass over the Markdown event stream, with five interceptions:
 
 `theme::shell` then wraps the result, taking the nav tree, the page's outline and its body.
 
+## Collecting tasks
+
+With `--todo`, `plan` picks the root TODO page before building the source map and the
+nav: a top-level `TODO.md` (or `TODO.markdown`, casefolded) if it is a page, otherwise a
+synthetic `TODO.md` page targeting `TODO.html`, whose source is just `# TODO`. A root
+TODO file that is excluded, ignored or unreadable is not a page, so it gets the synthetic
+one too. A file in `DIR` already at `TODO.html` is a planning error rather than something
+to overwrite. The synthetic page has no file behind it, which is safe because nothing
+after planning reads a page's source from disk; it flows through link resolution, the
+collision check and the nav like any other page.
+
+After the render pass, `todo` re-parses every other page with the same parser options
+and lifts each unchecked task item out whole, dropping any checked task items nested in
+it. An unchecked item inside a dropped subtree is lifted on its own, right after the item
+it was dropped from, so none is lost. Links and images inside a lifted item are resolved
+from its own page's source directory but against the TODO page's target directory, and
+the assets they hit are recorded so `emit` copies them. A fragment link is pointed back at
+the item's own page, a missing target is re-based lexically, and a footnote reference
+becomes plain text, since its definition stays behind. Each item is serialised to a
+single line of HTML, so a file's items can be appended as one raw-HTML list. Lifting
+works on the Markdown, not the page's rendered HTML, so a `mermaid` fence inside a lifted
+task comes out as an ordinary code block, not a diagram.
+
+The lifted items then form an appendix: an h2 per file with open tasks, in page order,
+linking to that file's source path and followed by its items, behind a `# Collected
+Tasks` heading when the page is a real `TODO.md`. There are no directory headings. The
+TODO page is rendered again in two parts, its own Markdown and then the appendix, each
+parsed separately so a fence or HTML block left open in `TODO.md` cannot swallow the
+appendix. The parts share one `PageIds`, so heading anchors and
+diagram ids stay unique across both; their HTML and outlines are joined. The generated
+headings get anchors and outline entries, and their links resolve normally. The re-render
+replaces the first one, warnings included, so nothing is reported twice. Nothing is
+written to `DIR`: the appendix exists only in memory.
+
 ## Mermaid
 
 `merman` parses, lays out and renders Mermaid entirely in Rust — no Node, Puppeteer or
@@ -96,10 +136,11 @@ parallel render pass worth having.
 
 ## Parallelism
 
-Two phases fan out across `rayon`, and both are pure functions of their inputs:
+Three phases fan out across `rayon`, and all are pure functions of their inputs:
 
 - **Read and title** — each source file is read once and its first heading extracted.
 - **Render** — each page is rendered independently, Mermaid layout included.
+- **Collect tasks** — with `--todo`, each page's open tasks are lifted out independently.
 
 Everything order-sensitive stays ordered. `par_iter().map().collect()` preserves input
 order, so the page vector is deterministic regardless of thread scheduling. Collision
@@ -125,7 +166,7 @@ may sit inside `DIR`; discovery excludes it so a rebuild never ingests its own o
 | `thiserror` | domain errors in `model` |
 | `pulldown-cmark` | CommonMark and GFM table parsing |
 | `merman` | Mermaid to SVG, in-process, required at `0.8.0-alpha.6` or compatible |
-| `rayon` | data parallelism across the read and render phases |
+| `rayon` | data parallelism across the read, render and task-collection phases |
 | `percent-encoding` | href decoding and encoding |
 | `tempfile` | staging directory |
 

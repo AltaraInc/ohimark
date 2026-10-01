@@ -40,28 +40,56 @@ pub struct Rendered {
     pub warnings: Warnings,
 }
 
-/// Render one page's Markdown to body HTML. Never fails: every problem is a warning
-/// (R7.7, R5.2, R6.6, R10.5).
+/// The Markdown dialect every page is parsed with: CommonMark plus tables,
+/// strikethrough, task lists and footnotes (R7). Shared with `todo`, which re-parses
+/// each page to lift its open task items out (R12.2).
 #[must_use]
-pub fn render_page(page: &Page, markdown: &str, site: &Site, diagrams: &Diagrams) -> Rendered {
-    let mut warnings = Warnings::new();
-    let mut assets: Vec<SourceRel> = Vec::new();
-    let mut outline: Vec<OutlineEntry> = Vec::new();
-    // Per-page anchor dedup map. Reset on every call, so identical ids on different
-    // pages are never a conflict (R6.8).
-    let mut heading_ids: HashMap<String, u32> = HashMap::new();
-    let mut mermaid_index: usize = 0;
-
-    let source_dir = page.source.dir();
-    let target_dir = page.target.dir();
-
+pub fn parser_options() -> Options {
     let mut options = Options::empty();
     options.insert(Options::ENABLE_TABLES);
     options.insert(Options::ENABLE_STRIKETHROUGH);
     options.insert(Options::ENABLE_TASKLISTS);
     options.insert(Options::ENABLE_FOOTNOTES);
+    options
+}
 
-    let mut events_iter = Parser::new_ext(markdown, options).peekable();
+/// The ids that must stay unique across one page: heading anchors (R6.8) and Mermaid
+/// diagram ids. Fresh for every page, so identical ids on different pages are never a
+/// conflict; shared between the parts of a page rendered separately (R12.4).
+#[derive(Debug, Default)]
+pub struct PageIds {
+    headings: HashMap<String, u32>,
+    diagrams: usize,
+}
+
+/// Render one page's Markdown to body HTML. Never fails: every problem is a warning
+/// (R7.7, R5.2, R6.6, R10.5).
+#[must_use]
+pub fn render_page(page: &Page, markdown: &str, site: &Site, diagrams: &Diagrams) -> Rendered {
+    render_part(page, markdown, site, diagrams, &mut PageIds::default())
+}
+
+/// Render one separately parsed part of a page, so a construct left open at the end of
+/// one part cannot swallow the next (R12.4). `ids` carries over from the page's earlier
+/// parts, keeping its anchors and diagram ids unique across all of them.
+#[must_use]
+pub fn render_part(
+    page: &Page,
+    markdown: &str,
+    site: &Site,
+    diagrams: &Diagrams,
+    ids: &mut PageIds,
+) -> Rendered {
+    let mut warnings = Warnings::new();
+    let mut assets: Vec<SourceRel> = Vec::new();
+    let mut outline: Vec<OutlineEntry> = Vec::new();
+    let heading_ids = &mut ids.headings;
+    let mermaid_index = &mut ids.diagrams;
+
+    let source_dir = page.source.dir();
+    let target_dir = page.target.dir();
+
+    let mut events_iter = Parser::new_ext(markdown, parser_options()).peekable();
     let mut out_events: Vec<Event> = Vec::new();
 
     while let Some(event) = events_iter.next() {
@@ -125,7 +153,7 @@ pub fn render_page(page: &Page, markdown: &str, site: &Site, diagrams: &Diagrams
                     Some(explicit) => explicit.to_string(),
                     None => slugify(&plain),
                 };
-                let anchor = dedup_heading_id(base, &mut heading_ids);
+                let anchor = dedup_heading_id(base, heading_ids);
 
                 out_events.push(Event::Html(CowStr::from(format!(
                     "<h{level_num} id=\"{}\">{inline_html}</h{level_num}>\n",
@@ -155,8 +183,8 @@ pub fn render_page(page: &Page, markdown: &str, site: &Site, diagrams: &Diagrams
 
                 if !first_word.is_empty() && first_word.eq_ignore_ascii_case("mermaid") {
                     let markup =
-                        render_mermaid_fence(diagrams, &code, page, mermaid_index, &mut warnings);
-                    mermaid_index += 1;
+                        render_mermaid_fence(diagrams, &code, page, *mermaid_index, &mut warnings);
+                    *mermaid_index += 1;
                     out_events.push(Event::Html(CowStr::from(markup)));
                 } else {
                     let class_attr = if first_word.is_empty() {
@@ -868,6 +896,7 @@ mod tests {
             pages,
             by_source,
             nav: Vec::new(),
+            todo: None,
         }
     }
 

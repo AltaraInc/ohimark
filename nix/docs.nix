@@ -27,9 +27,10 @@ let
   };
 
   # `ohimark`'s own documentation site: this repository's Markdown, rendered
-  # by the very tool it describes ("dogfooding").
+  # by the very tool it describes ("dogfooding"). `--todo` collects the open
+  # task-list items into the site's `TODO.html` page.
   docs = runCommand "${pname}-docs" { } ''
-    ${lib.getExe package} --out $out ${docsRoot}
+    ${lib.getExe package} --todo --out $out ${docsRoot}
   '';
 
   # The wrappers below serve the *working tree* rather than the sealed `docs`
@@ -78,10 +79,11 @@ let
       # `--out` has to be empty or absent, so each render goes to a fresh
       # staging directory and then replaces the served directory's
       # *contents*: static-web-server resolves its root once at startup, so
-      # that directory has to keep its identity across rebuilds.
+      # that directory has to keep its identity across rebuilds. `--todo`
+      # collects the open task-list items into the site's `TODO.html` page.
       mkdir -p "$state/site"
       rm -rf "$state/next"
-      ${lib.getExe package} --out "$state/next" --root README.md "$repo"
+      ${lib.getExe package} --todo --out "$state/next" --root README.md "$repo"
       find "$state/site" -mindepth 1 -delete
       cp -R "$state/next/." "$state/site/"
       rm -rf "$state/next"

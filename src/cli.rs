@@ -6,7 +6,7 @@ use clap::{ArgAction, Parser};
 use crate::model::{Error, Result};
 
 /// The raw command-line surface:
-/// `ohimark --out OUTDIR [--root FILENAME] [--exclude GLOB]... DIR` (R9.1).
+/// `ohimark --out OUTDIR [--root FILENAME] [--exclude GLOB]... [--todo] DIR` (R9.1).
 ///
 /// Fields accept arbitrary OS strings (not `Utf8PathBuf`) so that a non-UTF-8
 /// argument surfaces as a clear `Error::Config` from [`Args::into_config`]
@@ -55,6 +55,15 @@ pub struct Args {
         help = "Glob to exclude from discovery, relative to DIR (repeatable)"
     )]
     pub excludes: Vec<String>,
+
+    /// Collect every unchecked task-list item into the root-level TODO page.
+    /// Off by default (R12.1).
+    #[arg(
+        long = "todo",
+        action = ArgAction::SetTrue,
+        help = "Collect every unchecked task-list item into the root TODO page, in the HTML output only"
+    )]
+    pub todo: bool,
 }
 
 /// A validated, normalised configuration.
@@ -71,6 +80,8 @@ pub struct Config {
     /// `Some(rel)` when `out` lies inside `dir`; the `DIR`-relative path of the
     /// output directory, which discovery must skip (R1.9).
     pub out_inside_dir: Option<Utf8PathBuf>,
+    /// `--todo`: collect open tasks into the root-level TODO page (R12).
+    pub todo: bool,
 }
 
 impl Args {
@@ -89,6 +100,7 @@ impl Args {
             root,
             excludes: self.excludes,
             out_inside_dir,
+            todo: self.todo,
         })
     }
 }
@@ -263,6 +275,20 @@ mod tests {
     fn r9_default_root_is_readme() {
         let args = Args::try_parse_from(["ohimark", "dir", "--out", "site"]).unwrap();
         assert_eq!(args.root, std::path::PathBuf::from("README.md"));
+    }
+
+    #[test]
+    fn r12_1_todo_is_off_by_default() {
+        let args = Args::try_parse_from(["ohimark", "dir", "--out", "site"]).unwrap();
+        assert!(!args.todo);
+    }
+
+    #[test]
+    fn r12_1_todo_flag_turns_collection_on() {
+        let args = Args::try_parse_from(["ohimark", "--todo", "dir", "--out", "site"]).unwrap();
+        assert!(args.todo);
+        let after = Args::try_parse_from(["ohimark", "dir", "--out", "site", "--todo"]).unwrap();
+        assert!(after.todo);
     }
 
     #[test]

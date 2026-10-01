@@ -14,15 +14,16 @@ Task list items (`- [ ]` and `- [x]`) render as checkboxes reflecting the marker
 
 ## Usage
 
-`ohimark` requires a root directory to start from and a directory to write to. It optionally accepts a root file (defaulting to `README.md`) and exclusion globs.
+`ohimark` requires a root directory to start from and a directory to write to. It optionally accepts a root file (defaulting to `README.md`), exclusion globs, and a flag to collect open tasks.
 
 ```sh
-ohimark --out OUTDIR [--root FILENAME] [--exclude GLOB]... DIR
+ohimark --out OUTDIR [--root FILENAME] [--exclude GLOB]... [--todo] DIR
 ```
 
 - `--out` or `-o`: directory to write the generated static files to. Required; it must be empty or not yet exist.
 - `--root` or `-r`: the site's home page, given as a path relative to `DIR`. Defaults to `README.md`. It is emitted as `index.html`.
 - `--exclude`: a glob of paths to skip, in addition to the ignore files. Repeatable.
+- `--todo`: collect every unchecked task list item (`- [ ]`) from all pages into the root-level TODO page, under a heading linking each file, in page order. If `DIR` has a top-level `TODO.md`, the tasks are appended to it under a `Collected Tasks` heading and its own tasks are not repeated; otherwise a `TODO.html` page is generated. This only affects the HTML output: nothing is written to `DIR`. Off by default.
 
 ## Navigation, titles, and ignoring
 

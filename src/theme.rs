@@ -210,6 +210,7 @@ mod tests {
             pages,
             by_source: Default::default(),
             nav,
+            todo: None,
         }
     }
 

@@ -23,6 +23,9 @@ pub struct Planned {
     pub sources: Vec<String>,
     /// Non-fatal findings collected while planning (R1.7, unreadable files).
     pub warnings: Warnings,
+    /// True when `site.todo` names a page planned here with no file behind it,
+    /// rather than a `TODO.md` found in `DIR` (R12.3, R12.4).
+    pub todo_synthetic: bool,
 }
 
 /// Discover, read, title, map and build the navigation tree.
@@ -93,6 +96,45 @@ pub fn plan(config: &Config) -> Result<Planned> {
         }
     }
 
+    // R12.3 / R12.4: with `--todo`, the root-level TODO page collects every
+    // open task. A root TODO file that is absent, excluded, ignored or
+    // unreadable is not a page, so a synthetic one stands in for it. Planned
+    // before the lookup map and the nav are built, so a synthetic page flows
+    // through both - and the collision check - like any other. It has no file
+    // behind it, which is safe: nothing after planning reads a page's source
+    // from disk.
+    let mut todo_synthetic = false;
+    let todo = if config.todo {
+        match pages.iter().position(is_root_todo) {
+            Some(index) => Some(index),
+            None => {
+                let target = TargetPath::new(TODO_TARGET);
+                // R12.3: a file already at that path would be overwritten in the
+                // output; refuse, naming it, as R2.5 does for two pages.
+                if let Some(asset) = discovered
+                    .assets
+                    .iter()
+                    .find(|asset| asset.folded() == target.folded())
+                {
+                    return Err(Error::Plan(format!(
+                        "`--todo` generates `{target}`, but `{asset}` already produces that target"
+                    )));
+                }
+                todo_synthetic = true;
+                pages.push(Page {
+                    source: SourceRel::new(TODO_SOURCE),
+                    target,
+                    title: "TODO".to_string(),
+                    is_root: false,
+                });
+                sources.push("# TODO\n".to_string());
+                Some(pages.len() - 1)
+            }
+        }
+    } else {
+        None
+    };
+
     // R2.5: two sources whose folded targets collide are a hard error, named
     // deterministically in page order.
     detect_target_collisions(&pages)?;
@@ -117,10 +159,25 @@ pub fn plan(config: &Config) -> Result<Planned> {
             pages,
             by_source,
             nav,
+            todo,
         },
         sources,
         warnings,
+        todo_synthetic,
     })
+}
+
+/// The source path a synthetic TODO page is planned under (R12.3).
+const TODO_SOURCE: &str = "TODO.md";
+
+/// The target a synthetic TODO page is written to (R12.3).
+const TODO_TARGET: &str = "TODO.html";
+
+/// R12.4: a page is the root-level TODO page when its source folds to
+/// `todo.md` or `todo.markdown` at the top of `DIR`. Matched on the source, not
+/// the target, so a `--root TODO.md` emitted as `index.html` still counts.
+fn is_root_todo(page: &Page) -> bool {
+    matches!(page.source.folded().as_str(), "todo.md" | "todo.markdown")
 }
 
 /// R2.5: reject two sources whose targets fold to the same value, in

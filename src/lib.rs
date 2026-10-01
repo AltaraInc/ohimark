@@ -9,6 +9,7 @@ pub mod model;
 pub mod plan;
 pub mod render;
 pub mod theme;
+pub mod todo;
 
 pub use cli::{Args, Config};
 pub use model::{Error, Result, Warnings};
@@ -37,6 +38,19 @@ pub fn build(config: &Config) -> Result<Warnings> {
         .zip(planned.sources.par_iter())
         .map(|(page, source)| render::render_page(page, source, &planned.site, &diagrams))
         .collect();
+
+    // R12: with `--todo`, the TODO page is rendered again with every other page's
+    // open tasks appended. The re-render's warnings replace the first render's, so
+    // none is reported twice.
+    if let Some(todo_index) = planned.site.todo {
+        rendered[todo_index] = todo::render_page(
+            &planned.site,
+            &planned.sources,
+            todo_index,
+            !planned.todo_synthetic,
+            &diagrams,
+        );
+    }
 
     // Order-sensitive from here on: absorb warnings in page order so stderr
     // is byte-stable across runs of an unchanged tree (R11.3).
