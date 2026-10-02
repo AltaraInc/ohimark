@@ -4,14 +4,14 @@
  * Implements: R8.1 (theme toggle button, kept in sync with the inline head
  * script that already applied the stored/system theme before paint), R8.6
  * (per-diagram source/graphic toggle), R8.10 (copy-to-clipboard on code
- * blocks and diagrams), and two decorative/UX conveniences: outline
- * scroll-highlighting and closing the mobile nav drawer on navigation.
+ * blocks and diagrams), plus outline scroll-highlighting and collapsible
+ * sidebars with a mobile navigation drawer.
  *
  * Loaded with `defer`. Purely additive: the page is already correct and
  * fully usable (R8.8) before this file runs, so every DOM query is guarded
  * and every failure is swallowed rather than left to break the page. All
  * icons are inline SVG (owner request: no undersized text glyphs), drawn
- * from one small stroke-based icon set matching the hamburger markup that
+ * from one small stroke-based icon set matching the panel controls that
  * theme.rs already emits server-side.
  */
 
@@ -267,14 +267,163 @@
   }
 
   /* =======================================================================
-     5. One delegated click listener for every interactive control above,
-     plus closing the mobile sidebar drawer on navigation.
+     5. Sidebar controls: preserve independent preferences while keeping
+     the mobile navigation drawer closed when entering the mobile layout.
      ======================================================================= */
 
   var navState = document.getElementById("ohm-nav-state");
+  var outlineState = document.getElementById("ohm-outline-state");
+  var navButton = null;
+  var outlineButton = null;
+  var navMedia = null;
+  var desktopSidebarCollapsed = false;
+  var navigationWasMobile = false;
+
+  function readPanelCollapsed(key) {
+    try {
+      return window.sessionStorage.getItem(key) === "true";
+    } catch (err) {
+      /* With no stored preference, panels start expanded on desktop. */
+      return false;
+    }
+  }
+
+  function writePanelCollapsed(key, collapsed) {
+    try {
+      window.sessionStorage.setItem(key, collapsed ? "true" : "false");
+    } catch (err) {
+      /* Ignore: persistence is best-effort, including on file:// pages. */
+    }
+  }
+
+  function enhancePanelButton(state, selector, panelId) {
+    if (!state) return null;
+    var label = document.querySelector(selector);
+    if (!label) return null;
+    var button = document.createElement("button");
+    button.type = "button";
+    button.className = label.className;
+    while (label.firstChild) {
+      button.appendChild(label.firstChild);
+    }
+    button.setAttribute("aria-controls", panelId);
+    label.parentNode.replaceChild(button, label);
+    state.setAttribute("tabindex", "-1");
+    state.setAttribute("aria-hidden", "true");
+    return button;
+  }
+
+  function syncPanelButton(button, label, expanded) {
+    button.setAttribute("aria-expanded", expanded ? "true" : "false");
+    button.setAttribute("aria-label", label);
+    button.setAttribute("title", label);
+    if (!expanded) {
+      var panel = document.getElementById(button.getAttribute("aria-controls"));
+      if (panel && panel.contains(document.activeElement) && document.activeElement !== button) {
+        button.focus();
+      }
+    }
+  }
+
+  try {
+    if (typeof window.matchMedia === "function") {
+      navMedia = window.matchMedia("(max-width: 960px)");
+    }
+  } catch (err) {
+    /* Use the viewport width if media queries are unavailable. */
+  }
+
+  function navigationIsMobile() {
+    return navMedia
+      ? navMedia.matches
+      : (window.innerWidth || document.documentElement.clientWidth) <= 960;
+  }
+
+  function syncNavigationButton() {
+    if (!navState || !navButton) return;
+    var mobile = navigationIsMobile();
+    var expanded = mobile ? navState.checked : !navState.checked;
+    var label = mobile
+      ? (expanded ? "Close navigation" : "Open navigation")
+      : (expanded ? "Collapse navigation" : "Expand navigation");
+    syncPanelButton(navButton, label, expanded);
+  }
+
+  function toggleNavigation() {
+    if (!navState || !navButton) return;
+    navState.checked = !navState.checked;
+    if (!navigationIsMobile()) {
+      desktopSidebarCollapsed = navState.checked;
+      writePanelCollapsed("ohimark-sidebar-collapsed", desktopSidebarCollapsed);
+    }
+    syncNavigationButton();
+  }
+
+  function syncNavigationViewport() {
+    if (!navState || !navButton) return;
+    var mobile = navigationIsMobile();
+    if (mobile !== navigationWasMobile) {
+      navState.checked = mobile ? false : desktopSidebarCollapsed;
+      navigationWasMobile = mobile;
+    }
+    syncNavigationButton();
+  }
+
+  navButton = enhancePanelButton(navState, 'label.ohm-nav-button[for="ohm-nav-state"]', "ohm-sidebar");
+  if (navButton) {
+    desktopSidebarCollapsed = readPanelCollapsed("ohimark-sidebar-collapsed");
+    navigationWasMobile = navigationIsMobile();
+    navState.checked = navigationWasMobile ? false : desktopSidebarCollapsed;
+    syncNavigationButton();
+
+    if (navMedia && typeof navMedia.addEventListener === "function") {
+      navMedia.addEventListener("change", syncNavigationViewport);
+    } else if (navMedia && typeof navMedia.addListener === "function") {
+      navMedia.addListener(syncNavigationViewport);
+    } else {
+      window.addEventListener("resize", syncNavigationViewport);
+    }
+
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "Escape" && navigationIsMobile() && navState.checked) {
+        navState.checked = false;
+        syncNavigationButton();
+        navButton.focus();
+      }
+    });
+  }
+
+  function syncOutlineButton() {
+    if (!outlineState || !outlineButton) return;
+    var expanded = !outlineState.checked;
+    syncPanelButton(outlineButton, expanded ? "Collapse page outline" : "Expand page outline", expanded);
+  }
+
+  outlineButton = enhancePanelButton(outlineState, 'label.ohm-outline-button[for="ohm-outline-state"]', "ohm-outline");
+  if (outlineButton) {
+    outlineState.checked = readPanelCollapsed("ohimark-outline-collapsed");
+    syncOutlineButton();
+  }
+
+  /* =======================================================================
+     6. One delegated click listener for every interactive control above,
+     plus closing the mobile sidebar drawer on navigation.
+     ======================================================================= */
 
   document.addEventListener("click", function (event) {
     var target = event.target;
+
+    if (navButton && target.closest(".ohm-nav-button") === navButton) {
+      toggleNavigation();
+      return;
+    }
+
+    if (outlineButton && target.closest(".ohm-outline-button") === outlineButton) {
+      outlineState.checked = !outlineState.checked;
+      writePanelCollapsed("ohimark-outline-collapsed", outlineState.checked);
+      syncOutlineButton();
+      return;
+    }
 
     if (target.closest("#ohm-theme-button")) {
       applyTheme(currentTheme() === "dark" ? "light" : "dark");
@@ -293,8 +442,9 @@
       return;
     }
 
-    if (navState && target.closest(".ohm-sidebar .ohm-nav-link")) {
+    if (navState && navigationIsMobile() && target.closest(".ohm-sidebar .ohm-nav-link, .ohm-sidebar a.ohm-nav-label")) {
       navState.checked = false;
+      syncNavigationButton();
     }
   });
 })();

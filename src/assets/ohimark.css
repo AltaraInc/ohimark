@@ -33,8 +33,12 @@
   --ohm-topbar-h: 56px;
   --ohm-sidebar-w: 272px;
   --ohm-outline-w: 220px;
+  --ohm-rail-w: 56px;
   --ohm-gutter: 1.5rem;
+  --ohm-wide-gutter: clamp(2rem, 5vw, 8rem);
   --ohm-content-max: 56rem;
+  --ohm-icon-size: 1.25rem;
+  --ohm-icon-stroke-width: 1.75;
 
   /* -- Site chrome -- */
   --ohm-bg: #ffffff;
@@ -284,7 +288,7 @@ a:hover {
    ========================================================================= */
 
 .ohm-icon-button,
-.ohm-nav-button {
+.ohm-panel-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -301,19 +305,27 @@ a:hover {
 }
 
 .ohm-icon-button:hover,
-.ohm-nav-button:hover {
+.ohm-panel-button:hover {
   background: var(--ohm-code-bg);
 }
 
 .ohm-icon {
-  width: 1.25rem;
-  height: 1.25rem;
+  width: var(--ohm-icon-size);
+  height: var(--ohm-icon-size);
   flex: none;
   fill: none;
   stroke: currentColor;
-  stroke-width: 2;
+  stroke-width: var(--ohm-icon-stroke-width);
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+.ohm-outline-button .ohm-icon {
+  transform: scaleX(-1);
+}
+
+.ohm-icon-expand {
+  display: none;
 }
 
 /* Floating icon buttons that sit on top of code or diagram content need a
@@ -346,14 +358,32 @@ a:hover {
    5. Layout scaffold
    ========================================================================= */
 
-.ohm-nav-state {
-  position: absolute;
+.ohm-panel-state {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
   pointer-events: none;
   opacity: 0;
 }
 
-/* -- Top bar: full-bleed, sticky, and the alignment anchor for the sidebar
-   below it (R8.1's toggle lives here too). -- */
+/* Keep the CSS fallback checkboxes keyboard reachable while showing their
+   focus on the matching panel controls. */
+.ohm-nav-state:focus-visible ~ .ohm-body .ohm-sidebar .ohm-nav-button,
+.ohm-outline-state:focus-visible ~ .ohm-body .ohm-outline .ohm-outline-button {
+  outline: 2px solid var(--ohm-accent);
+  outline-offset: 2px;
+}
+
+/* -- Top bar: full-bleed and sticky, with the brand and theme control. -- */
 
 .ohm-topbar {
   position: sticky;
@@ -375,10 +405,6 @@ a:hover {
   gap: 0.5rem;
   height: 100%;
   padding: 0 var(--ohm-gutter);
-}
-
-.ohm-nav-button {
-  display: none;
 }
 
 .ohm-brand,
@@ -408,8 +434,9 @@ a:hover {
   align-items: flex-start;
 }
 
-/* -- Sidebar: flush against the viewport edge, sticky below the top bar,
-   and independently scrollable. -- */
+/* -- Sidebar: flush against the viewport edge and sticky below the top bar.
+   Its navigation scrolls independently; the state collapses its desktop
+   rail and opens the mobile drawer. -- */
 
 .ohm-sidebar {
   flex: 0 0 var(--ohm-sidebar-w);
@@ -417,11 +444,48 @@ a:hover {
   position: sticky;
   top: var(--ohm-topbar-h);
   height: calc(100vh - var(--ohm-topbar-h));
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   background: var(--ohm-sidebar-bg);
   border-right: 1px solid var(--ohm-border);
   padding: 1.5rem var(--ohm-gutter);
   z-index: 20;
+}
+
+.ohm-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: none;
+  min-height: 2.25rem;
+}
+
+.ohm-sidebar-header {
+  justify-content: flex-end;
+}
+
+.ohm-sidebar-header .ohm-nav-link {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ohm-sidebar .ohm-nav {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.ohm-sidebar .ohm-nav > .ohm-nav-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .ohm-nav-list {
@@ -430,10 +494,13 @@ a:hover {
   padding: 0;
 }
 
+/* The guide line sits under the group's chevron and child text lines up
+   with the group label text (chevron 0.4 + 0.4 + 0.35rem, then label
+   padding 0.5rem = 1.65rem; here 0.6 + 0.55 + link padding 0.5rem). */
 .ohm-nav-list .ohm-nav-list {
   margin-top: 0.25rem;
-  margin-left: 0.85rem;
-  padding-left: 0.65rem;
+  margin-left: 0.6rem;
+  padding-left: 0.55rem;
   border-left: 1px solid var(--ohm-border);
 }
 
@@ -480,10 +547,64 @@ a.ohm-nav-label {
   border-radius: 6px;
 }
 
+/* The summary row already highlights on hover, so the label link inside it
+   stays transparent rather than doubling the background. */
 a.ohm-nav-label:hover {
-  background: var(--ohm-code-bg);
+  background: transparent;
   color: var(--ohm-muted);
   text-decoration: none;
+}
+
+/* -- Collapsible groups: native <details>/<summary>, no script needed.
+   Clicking the label link navigates; clicking the chevron or the rest of
+   the row toggles. -- */
+
+.ohm-nav-summary {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  list-style: none;
+  border-radius: 6px;
+}
+
+.ohm-nav-summary::-webkit-details-marker {
+  display: none;
+}
+
+.ohm-nav-summary::before {
+  content: "";
+  width: 0.4rem;
+  height: 0.4rem;
+  border-right: 1.5px solid var(--ohm-muted);
+  border-bottom: 1.5px solid var(--ohm-muted);
+  transform: rotate(-45deg);
+  margin: 0 0.35rem 0 0.4rem;
+  flex: none;
+  transition: transform 0.15s ease;
+}
+
+.ohm-nav-details[open] > .ohm-nav-summary::before {
+  transform: rotate(45deg);
+}
+
+.ohm-nav-summary > .ohm-nav-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.ohm-nav-summary:hover {
+  background: var(--ohm-code-bg);
+}
+
+.ohm-nav-summary:focus-visible {
+  outline: 2px solid var(--ohm-accent);
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ohm-nav-summary::before {
+    transition: none;
+  }
 }
 
 /* -- Main column: takes the remaining width and centres a wide reading
@@ -512,9 +633,27 @@ a.ohm-nav-label:hover {
   position: sticky;
   top: var(--ohm-topbar-h);
   height: calc(100vh - var(--ohm-topbar-h));
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   padding: 1.5rem var(--ohm-gutter);
   background: var(--ohm-outline-bg);
+}
+
+.ohm-outline-header {
+  justify-content: space-between;
+}
+
+.ohm-outline-header .ohm-outline-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+.ohm-outline-nav {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .ohm-outline-title {
@@ -829,14 +968,10 @@ a.ohm-nav-label:hover {
 }
 
 /* =========================================================================
-   8. Mobile navigation drawer (R8.4, R8.8 — pure CSS, no JavaScript)
+   8. Responsive panels (R8.4/R8.5/R8.8 — CSS checkbox fallback)
    ========================================================================= */
 
 @media (max-width: 960px) {
-  .ohm-nav-button {
-    display: inline-flex;
-  }
-
   .ohm-sidebar {
     position: fixed;
     top: var(--ohm-topbar-h);
@@ -844,9 +979,32 @@ a.ohm-nav-label:hover {
     bottom: 0;
     width: 85%;
     max-width: 320px;
-    transform: translateX(-100%);
+    padding: 1.5rem var(--ohm-gutter);
+    transform: translateX(calc(-100% + var(--ohm-rail-w)));
     box-shadow: 2px 0 12px var(--ohm-shadow);
     transition: transform 0.2s ease;
+  }
+
+  .ohm-nav-state:not(:checked) ~ .ohm-body .ohm-sidebar {
+    padding-inline: 0.5rem;
+  }
+
+  .ohm-nav-state:not(:checked) ~ .ohm-body .ohm-sidebar-header {
+    justify-content: flex-end;
+    padding-right: 1px;
+  }
+
+  .ohm-nav-state:not(:checked) ~ .ohm-body .ohm-sidebar .ohm-nav > .ohm-panel-header > .ohm-nav-link,
+  .ohm-nav-state:not(:checked) ~ .ohm-body .ohm-sidebar .ohm-nav > .ohm-nav-list {
+    display: none;
+  }
+
+  .ohm-nav-state:not(:checked) ~ .ohm-body .ohm-sidebar .ohm-icon-collapse {
+    display: none;
+  }
+
+  .ohm-nav-state:not(:checked) ~ .ohm-body .ohm-sidebar .ohm-icon-expand {
+    display: block;
   }
 
   .ohm-nav-state:checked ~ .ohm-body .ohm-sidebar {
@@ -865,12 +1023,81 @@ a.ohm-nav-label:hover {
   }
 
   .ohm-main {
-    padding: 2rem 1.25rem 3rem;
+    padding: 2rem 1.25rem 3rem calc(var(--ohm-rail-w) + 1.25rem);
+  }
+}
+
+@media not all and (max-width: 960px) {
+  .ohm-nav-state:checked ~ .ohm-body .ohm-sidebar {
+    flex-basis: var(--ohm-rail-w);
+    width: var(--ohm-rail-w);
+    padding-inline: 0.5rem;
+  }
+
+  .ohm-nav-state:checked ~ .ohm-body .ohm-sidebar-header {
+    justify-content: center;
+  }
+
+  .ohm-nav-state:checked ~ .ohm-body .ohm-sidebar .ohm-nav > .ohm-panel-header > .ohm-nav-link,
+  .ohm-nav-state:checked ~ .ohm-body .ohm-sidebar .ohm-nav > .ohm-nav-list {
+    display: none;
+  }
+
+  .ohm-nav-state:checked ~ .ohm-body .ohm-sidebar .ohm-icon-collapse {
+    display: none;
+  }
+
+  .ohm-nav-state:checked ~ .ohm-body .ohm-sidebar .ohm-icon-expand {
+    display: block;
+  }
+
+  .ohm-nav-state:checked ~ .ohm-body .ohm-main {
+    padding-inline: var(--ohm-wide-gutter);
+  }
+
+  .ohm-nav-state:checked ~ .ohm-body .ohm-content {
+    max-width: none;
+  }
+}
+
+@media not all and (max-width: 1280px) {
+  .ohm-outline-state:checked ~ .ohm-body .ohm-outline {
+    flex-basis: var(--ohm-rail-w);
+    width: var(--ohm-rail-w);
+    padding-inline: 0.5rem;
+  }
+
+  .ohm-outline-state:checked ~ .ohm-body .ohm-outline-header {
+    justify-content: center;
+  }
+
+  .ohm-outline-state:checked ~ .ohm-body .ohm-outline-title,
+  .ohm-outline-state:checked ~ .ohm-body .ohm-outline-nav {
+    display: none;
+  }
+
+  .ohm-outline-state:checked ~ .ohm-body .ohm-outline .ohm-icon-collapse {
+    display: none;
+  }
+
+  .ohm-outline-state:checked ~ .ohm-body .ohm-outline .ohm-icon-expand {
+    display: block;
+  }
+
+  .ohm-nav-state:checked ~ .ohm-body .ohm-main,
+  .ohm-outline-state:checked ~ .ohm-body .ohm-main {
+    padding-inline: var(--ohm-wide-gutter);
+  }
+
+  .ohm-nav-state:checked ~ .ohm-body .ohm-content,
+  .ohm-outline-state:checked ~ .ohm-body .ohm-content {
+    max-width: none;
   }
 }
 
 @media (max-width: 1280px) {
-  .ohm-outline {
+  .ohm-outline,
+  .ohm-outline-state {
     display: none;
   }
 }

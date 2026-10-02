@@ -19,6 +19,8 @@ pub const STYLE_PATH: &str = "assets/ohimark.css";
 /// Output-relative path the script is written to.
 pub const SCRIPT_PATH: &str = "assets/ohimark.js";
 
+const PANEL_ICONS: &str = "<svg class=\"ohm-icon ohm-icon-collapse\" viewBox=\"0 0 24 24\" aria-hidden=\"true\" focusable=\"false\"><rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"2\"/><path d=\"M9 3v18 M16 9l-3 3 3 3\"/></svg><svg class=\"ohm-icon ohm-icon-expand\" viewBox=\"0 0 24 24\" aria-hidden=\"true\" focusable=\"false\"><rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"2\"/><path d=\"M9 3v18 M14 9l3 3-3 3\"/></svg>";
+
 /// Render the sidebar recursively. Hrefs are computed relative to `dir`, the
 /// directory of the page currently being rendered, so the same call from two
 /// different pages necessarily yields different hrefs by depth (R11.1) while
@@ -42,15 +44,23 @@ fn current_marker(is_current: bool) -> (&'static str, &'static str) {
     }
 }
 
+fn render_nav_link(
+    title: &str,
+    target: &crate::model::TargetPath,
+    page: &Page,
+    dir: &Utf8Path,
+) -> String {
+    let href = links::relative_to(dir, target.as_path());
+    let title = escape_html(title);
+    let (current_class, current_attr) = current_marker(*target == page.target);
+    format!("<a class=\"ohm-nav-link{current_class}\"{current_attr} href=\"{href}\">{title}</a>")
+}
+
 fn render_nav_node(node: &NavNode, page: &Page, dir: &Utf8Path, out: &mut String) {
     match node {
         NavNode::Page { title, target } => {
-            let href = links::relative_to(dir, target.as_path());
-            let title = escape_html(title);
-            let (current_class, current_attr) = current_marker(*target == page.target);
-            out.push_str(&format!(
-                "<li class=\"ohm-nav-item\"><a class=\"ohm-nav-link{current_class}\"{current_attr} href=\"{href}\">{title}</a></li>"
-            ));
+            let link = render_nav_link(title, target, page, dir);
+            out.push_str(&format!("<li class=\"ohm-nav-item\">{link}</li>"));
         }
         NavNode::Group {
             label,
@@ -66,13 +76,13 @@ fn render_nav_node(node: &NavNode, page: &Page, dir: &Utf8Path, out: &mut String
                     let href = links::relative_to(dir, target.as_path());
                     let (current_class, current_attr) = current_marker(*target == page.target);
                     out.push_str(&format!(
-                        "<li class=\"ohm-nav-group\"><a class=\"ohm-nav-link ohm-nav-label{current_class}\"{current_attr} href=\"{href}\">{label}</a><ul class=\"ohm-nav-list\">{children_html}</ul></li>"
+                        "<li class=\"ohm-nav-group\"><details class=\"ohm-nav-details\" open><summary class=\"ohm-nav-summary\"><a class=\"ohm-nav-link ohm-nav-label{current_class}\"{current_attr} href=\"{href}\">{label}</a></summary><ul class=\"ohm-nav-list\">{children_html}</ul></details></li>"
                     ));
                 }
                 // R4.3: otherwise the node is a plain label with no link.
                 None => {
                     out.push_str(&format!(
-                        "<li class=\"ohm-nav-group\"><span class=\"ohm-nav-label\">{label}</span><ul class=\"ohm-nav-list\">{children_html}</ul></li>"
+                        "<li class=\"ohm-nav-group\"><details class=\"ohm-nav-details\" open><summary class=\"ohm-nav-summary\"><span class=\"ohm-nav-label\">{label}</span></summary><ul class=\"ohm-nav-list\">{children_html}</ul></details></li>"
                     ));
                 }
             }
@@ -101,7 +111,7 @@ fn render_outline(outline: &[OutlineEntry]) -> String {
     }
 
     format!(
-        "<aside class=\"ohm-outline\">\n<nav class=\"ohm-outline-nav\" aria-label=\"On this page\">\n<p class=\"ohm-outline-title\">On this page</p>\n<ul class=\"ohm-outline-list\">{items}</ul>\n</nav>\n</aside>\n"
+        "<aside class=\"ohm-outline\" id=\"ohm-outline\">\n<div class=\"ohm-panel-header ohm-outline-header\"><p class=\"ohm-outline-title\">On this page</p><label class=\"ohm-panel-button ohm-outline-button\" for=\"ohm-outline-state\" aria-label=\"Toggle page outline\" aria-controls=\"ohm-outline\" title=\"Toggle page outline\">{PANEL_ICONS}</label></div>\n<nav class=\"ohm-outline-nav\" aria-label=\"On this page\">\n<ul class=\"ohm-outline-list\">{items}</ul>\n</nav>\n</aside>\n"
     )
 }
 
@@ -127,7 +137,15 @@ pub fn shell(page: &Page, site: &Site, body: &str, outline: &[OutlineEntry]) -> 
         format!("{} · {}", escape_html(&page.title), site_title)
     };
 
-    let nav = render_nav_list(&site.nav, page, dir);
+    let (sidebar_root_link, sidebar_nav_nodes) = match site.nav.split_first() {
+        Some((NavNode::Page { title, target }, remaining))
+            if *target == site.root_page().target =>
+        {
+            (Some(render_nav_link(title, target, page, dir)), remaining)
+        }
+        _ => (None, site.nav.as_slice()),
+    };
+    let nav = render_nav_list(sidebar_nav_nodes, page, dir);
     let outline_html = render_outline(outline);
 
     let mut out = String::new();
@@ -146,14 +164,16 @@ pub fn shell(page: &Page, site: &Site, body: &str, outline: &[OutlineEntry]) -> 
         "<script>(function(){try{var t=sessionStorage.getItem(\"ohimark-theme\");if(t===\"dark\"||t===\"light\"){document.documentElement.setAttribute(\"data-theme\",t);}}catch(e){}})();</script>\n",
     );
     out.push_str("</head>\n<body>\n");
-    out.push_str("<input type=\"checkbox\" id=\"ohm-nav-state\" class=\"ohm-nav-state\" hidden>\n");
+    out.push_str(
+        "<input type=\"checkbox\" id=\"ohm-nav-state\" class=\"ohm-nav-state ohm-panel-state\" aria-label=\"Toggle navigation\" aria-controls=\"ohm-sidebar\">\n",
+    );
+    if !outline.is_empty() {
+        out.push_str(
+            "<input type=\"checkbox\" id=\"ohm-outline-state\" class=\"ohm-panel-state ohm-outline-state\" aria-label=\"Toggle page outline\" aria-controls=\"ohm-outline\">\n",
+        );
+    }
     out.push_str("<header class=\"ohm-topbar\">\n");
     out.push_str("<div class=\"ohm-topbar-lead\">\n");
-    // The hamburger is inline SVG, not JS-injected, so it works with
-    // scripting off (R8.8).
-    out.push_str(
-        "<label class=\"ohm-nav-button\" for=\"ohm-nav-state\" aria-label=\"Toggle navigation\"><svg class=\"ohm-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\" focusable=\"false\"><path d=\"M3 6h18M3 12h18M3 18h18\"/></svg></label>\n",
-    );
     out.push_str("<a class=\"ohm-brand\" href=\"");
     out.push_str(&index_href);
     out.push_str("\">");
@@ -170,8 +190,15 @@ pub fn shell(page: &Page, site: &Site, body: &str, outline: &[OutlineEntry]) -> 
     out.push_str("</div>\n");
     out.push_str("</header>\n");
     out.push_str("<div class=\"ohm-body\">\n");
-    out.push_str("<aside class=\"ohm-sidebar\">\n");
+    out.push_str("<aside class=\"ohm-sidebar\" id=\"ohm-sidebar\">\n");
     out.push_str("<nav class=\"ohm-nav\" aria-label=\"Site navigation\">\n");
+    out.push_str("<div class=\"ohm-panel-header ohm-sidebar-header\">");
+    if let Some(root_link) = sidebar_root_link {
+        out.push_str(&root_link);
+    }
+    out.push_str("<label class=\"ohm-panel-button ohm-nav-button\" for=\"ohm-nav-state\" aria-label=\"Toggle navigation\" aria-controls=\"ohm-sidebar\" title=\"Toggle navigation\">");
+    out.push_str(PANEL_ICONS);
+    out.push_str("</label></div>\n");
     out.push_str("<ul class=\"ohm-nav-list\">");
     out.push_str(&nav);
     out.push_str("</ul>\n");
@@ -288,6 +315,19 @@ mod tests {
         let sidebar_root = extract_sidebar(&on_root);
         let sidebar_guide = extract_sidebar(&on_guide);
 
+        assert_eq!(sidebar_root.matches("href=\"index.html\"").count(), 1);
+        assert_eq!(sidebar_guide.matches("href=\"index.html\"").count(), 1);
+        let root_link = sidebar_root
+            .find("aria-current=\"page\" href=\"index.html\"")
+            .expect("root page link missing from navigation header");
+        let root_toggle = sidebar_root
+            .find("class=\"ohm-panel-button ohm-nav-button\"")
+            .expect("navigation collapse control missing from header");
+        assert!(
+            root_link < root_toggle,
+            "root link must precede the panel control"
+        );
+
         let strip = |h: &str| {
             h.replace(" ohm-nav-link--current", "")
                 .replace(" aria-current=\"page\"", "")
@@ -316,13 +356,17 @@ mod tests {
     }
 
     #[test]
-    fn r8_3_no_headings_means_no_outline() {
+    fn r8_3_no_headings_means_no_outline_or_control() {
         let root = page("README.md", "index.html", "Home", true);
         let site = site_with(vec![root.clone()], vec![]);
         let html = shell(&root, &site, "<p>hi</p>", &[]);
         assert!(
-            !html.contains("ohm-outline"),
+            !html.contains("id=\"ohm-outline\""),
             "outline present with no headings"
+        );
+        assert!(
+            !html.contains("id=\"ohm-outline-state\""),
+            "outline control present with no headings"
         );
     }
 
@@ -365,17 +409,123 @@ mod tests {
     }
 
     #[test]
-    fn r8_8_hamburger_is_inline_svg() {
+    fn r8_5_groups_collapsible_and_start_expanded() {
+        let root = page("README.md", "index.html", "Home", true);
+        let guide = page("docs/guide.md", "docs/guide.html", "Guide", false);
+        let note = page("notes/note.md", "notes/note.html", "Note", false);
+        let nav = vec![
+            NavNode::Page {
+                title: "Home".into(),
+                target: root.target.clone(),
+            },
+            NavNode::Group {
+                label: "docs".into(),
+                link: Some(guide.target.clone()),
+                children: vec![],
+            },
+            NavNode::Group {
+                label: "notes".into(),
+                link: None,
+                children: vec![NavNode::Page {
+                    title: "Note".into(),
+                    target: note.target.clone(),
+                }],
+            },
+        ];
+        let site = site_with(vec![root.clone(), guide.clone(), note.clone()], nav);
+
+        // Viewed from the root page, which sits outside both groups: every
+        // group must still start expanded (R8.5).
+        let html = shell(&root, &site, "", &[]);
+        let sidebar = extract_sidebar(&html);
+
+        assert!(
+            sidebar.contains(
+                "<li class=\"ohm-nav-group\"><details class=\"ohm-nav-details\" open><summary class=\"ohm-nav-summary\"><a class=\"ohm-nav-link ohm-nav-label\" href=\"docs/guide.html\">docs</a></summary>"
+            ),
+            "linked group not a details/summary starting open: {sidebar}"
+        );
+        assert!(
+            sidebar.contains(
+                "<li class=\"ohm-nav-group\"><details class=\"ohm-nav-details\" open><summary class=\"ohm-nav-summary\"><span class=\"ohm-nav-label\">notes</span></summary>"
+            ),
+            "unlinked group not a details/summary starting open: {sidebar}"
+        );
+        assert_eq!(
+            sidebar
+                .matches("<details class=\"ohm-nav-details\" open>")
+                .count(),
+            2,
+            "every group must render open: {sidebar}"
+        );
+        assert_eq!(sidebar.matches("</details>").count(), 2);
+    }
+
+    #[test]
+    fn r8_4_panel_controls_have_inline_collapse_and_expand_icons() {
+        let root = page("README.md", "index.html", "Home", true);
+        let site = site_with(vec![root.clone()], vec![]);
+        let outline = vec![OutlineEntry {
+            level: 2,
+            id: "usage".into(),
+            text: "Usage".into(),
+        }];
+        let html = shell(&root, &site, "", &outline);
+
+        assert_eq!(
+            html.matches("class=\"ohm-icon ohm-icon-collapse\"").count(),
+            2
+        );
+        assert_eq!(
+            html.matches("class=\"ohm-icon ohm-icon-expand\"").count(),
+            2
+        );
+        assert!(!html.contains("M3 6h18M3 12h18M3 18h18"));
+    }
+
+    #[test]
+    fn r8_4_navigation_control_remains_accessible_without_javascript() {
         let root = page("README.md", "index.html", "Home", true);
         let site = site_with(vec![root.clone()], vec![]);
         let html = shell(&root, &site, "", &[]);
 
+        let checkbox = "<input type=\"checkbox\" id=\"ohm-nav-state\" class=\"ohm-nav-state ohm-panel-state\" aria-label=\"Toggle navigation\" aria-controls=\"ohm-sidebar\">";
+        let checkbox_pos = html
+            .find(checkbox)
+            .expect("navigation checkbox missing or not keyboard accessible");
+        let header_pos = html.find("<header class=\"ohm-topbar\">").unwrap();
+        let body_pos = html.find("<div class=\"ohm-body\">").unwrap();
+        assert!(checkbox_pos < header_pos && checkbox_pos < body_pos);
+        let topbar_start = html.find("<header class=\"ohm-topbar\">").unwrap();
+        let topbar_end = html.find("</header>").unwrap();
         assert!(
-            html.contains(
-                "<svg class=\"ohm-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\" focusable=\"false\"><path d=\"M3 6h18M3 12h18M3 18h18\"/></svg>"
-            ),
-            "hamburger svg missing, so navigation toggle would not work with scripting off: {html}"
+            !html[topbar_start..topbar_end].contains("ohm-nav-button"),
+            "navigation control remains in the topbar: {html}"
         );
+        assert!(html.contains("<aside class=\"ohm-sidebar\" id=\"ohm-sidebar\">"));
+        assert!(html.contains("class=\"ohm-panel-header ohm-sidebar-header\""));
+        assert!(html.contains("for=\"ohm-nav-state\" aria-label=\"Toggle navigation\" aria-controls=\"ohm-sidebar\" title=\"Toggle navigation\""));
+        assert!(
+            html.contains("<nav class=\"ohm-nav\" aria-label=\"Site navigation\">"),
+            "sidebar navigation opening markup changed: {html}"
+        );
+
+        let outline = vec![OutlineEntry {
+            level: 2,
+            id: "usage".into(),
+            text: "Usage".into(),
+        }];
+        let html = shell(&root, &site, "<h2 id=\"usage\">Usage</h2>", &outline);
+        let outline_checkbox = "<input type=\"checkbox\" id=\"ohm-outline-state\" class=\"ohm-panel-state ohm-outline-state\" aria-label=\"Toggle page outline\" aria-controls=\"ohm-outline\">";
+        let outline_checkbox_pos = html
+            .find(outline_checkbox)
+            .expect("outline checkbox missing");
+        let outlined_header_pos = html.find("<header class=\"ohm-topbar\">").unwrap();
+        assert!(outline_checkbox_pos < outlined_header_pos);
+        assert!(html.contains("<aside class=\"ohm-outline\" id=\"ohm-outline\">"));
+        assert!(html.contains("<div class=\"ohm-panel-header ohm-outline-header\"><p class=\"ohm-outline-title\">On this page</p>"));
+        assert!(html.contains("class=\"ohm-panel-button ohm-outline-button\" for=\"ohm-outline-state\" aria-label=\"Toggle page outline\" aria-controls=\"ohm-outline\" title=\"Toggle page outline\""));
+        assert!(html.contains("<nav class=\"ohm-outline-nav\" aria-label=\"On this page\">"));
     }
 
     #[test]
