@@ -23,7 +23,7 @@ ohimark --out OUTDIR [--root FILENAME] [--exclude GLOB]... [--todo] DIR
 - `--out` or `-o`: directory to write the generated static files to. Required; it must be empty or not yet exist.
 - `--root` or `-r`: the site's home page, given as a path relative to `DIR`. Defaults to `README.md`. It is emitted as `index.html`.
 - `--exclude`: a glob of paths to skip, in addition to the ignore files. Repeatable.
-- `--todo`: collect every unchecked task list item (`- [ ]`) from all pages into the root-level TODO page, under a heading linking each file, in page order. If `DIR` has a top-level `TODO.md`, the tasks are appended to it under a `Collected Tasks` heading and its own tasks are not repeated; otherwise a `TODO.html` page is generated. This only affects the HTML output: nothing is written to `DIR`. Off by default.
+- `--todo`: collect every unchecked task list item (`- [ ]`) from all pages into the root-level TODO page, under a heading linking each file, in page order. If `DIR` has a top-level `TODO.md`, the tasks are appended to it under a `Collected Tasks` heading and its own tasks are not repeated; otherwise a `TODO.html` page is generated. When there are no open tasks to collect, nothing is added and no `TODO.html` is generated. This only affects the HTML output: nothing is written to `DIR`. Off by default.
 
 ## Navigation, titles, and ignoring
 

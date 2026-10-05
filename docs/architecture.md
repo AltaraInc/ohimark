@@ -72,7 +72,7 @@ is what needs them.
 - `SourceRel` — a `DIR`-relative POSIX path to an input file.
 - `TargetPath` — an output-relative path, ending in `.html` for a page.
 - `Page { source, target, title }` — one rendered document.
-- `Site { pages, by_source, nav, todo }` — `by_source` is the casefolded map `links` resolves against; `todo` is the index of the root TODO page when `--todo` is set.
+- `Site { pages, by_source, nav, todo }` — `by_source` is the casefolded map `links` resolves against; `todo` is the index of the root TODO page when `--todo` is set and there is one (a root TODO file, or a synthetic page because some page has an open task).
 - `NavNode` — either a page entry or a group carrying a label, an optional link, and children.
 - `Warnings` — an ordered sink; everything in it reaches stderr and nothing in it affects the exit code.
 
@@ -94,10 +94,13 @@ With `--todo`, `plan` picks the root TODO page before building the source map an
 nav: a top-level `TODO.md` (or `TODO.markdown`, casefolded) if it is a page, otherwise a
 synthetic `TODO.md` page targeting `TODO.html`, whose source is just `# TODO`. A root
 TODO file that is excluded, ignored or unreadable is not a page, so it gets the synthetic
-one too. A file in `DIR` already at `TODO.html` is a planning error rather than something
-to overwrite. The synthetic page has no file behind it, which is safe because nothing
-after planning reads a page's source from disk; it flows through link resolution, the
-collision check and the nav like any other page.
+one too. The synthetic page is only added when some page has an open task
+(`todo::has_open_task`): with none there is nothing to collect, so no TODO page is
+planned, nothing joins the nav and `TODO.html` is not generated. When it is added, a file
+in `DIR` already at `TODO.html` is a planning error rather than something to overwrite.
+The synthetic page has no file behind it, which is safe because nothing after planning
+reads a page's source from disk; it flows through link resolution, the collision check
+and the nav like any other page.
 
 After the render pass, `todo` re-parses every other page with the same parser options
 and lifts each unchecked task item out whole, dropping any checked task items nested in
@@ -113,7 +116,9 @@ task comes out as an ordinary code block, not a diagram.
 
 The lifted items then form an appendix: an h2 per file with open tasks, in page order,
 linking to that file's source path and followed by its items, behind a `# Collected
-Tasks` heading when the page is a real `TODO.md`. There are no directory headings. The
+Tasks` heading when the page is a real `TODO.md`. There are no directory headings. When
+nothing was collected the appendix is empty, heading included, and is skipped, so a real
+`TODO.md` renders as it does without `--todo`. The
 TODO page is rendered again in two parts, its own Markdown and then the appendix, each
 parsed separately so a fence or HTML block left open in `TODO.md` cannot swallow the
 appendix. The parts share one `PageIds`, so heading anchors and
