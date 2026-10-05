@@ -53,7 +53,9 @@ pub struct Collected {
 ///
 /// The page's own Markdown and the appendix are parsed and rendered as two parts, so a
 /// fence or HTML block left open at the end of `TODO.md` cannot swallow the appendix;
-/// the parts share one set of page ids, so anchors stay unique across both (R6.8).
+/// the parts share one set of page ids, so anchors stay unique across both (R6.8). An
+/// empty appendix is not rendered at all, so with no open task collected the page comes
+/// out as it does without `--todo` (R12.4, R12.5).
 ///
 /// Collection runs in parallel and preserves page order (R11.3). Its warnings are
 /// discarded: each page's own render already reported every unresolved reference.
@@ -84,17 +86,14 @@ pub fn render_page(
     let mut ids = PageIds::default();
     let mut rendered =
         render::render_part(todo_page, &sources[todo_index], site, diagrams, &mut ids);
-    let appended = render::render_part(
-        todo_page,
-        &appendix(site, &collected, appended_heading),
-        site,
-        diagrams,
-        &mut ids,
-    );
-    rendered.html.push_str(&appended.html);
-    rendered.outline.extend(appended.outline);
-    rendered.assets.extend(appended.assets);
-    rendered.warnings.absorb(appended.warnings);
+    let appendix = appendix(site, &collected, appended_heading);
+    if !appendix.is_empty() {
+        let appended = render::render_part(todo_page, &appendix, site, diagrams, &mut ids);
+        rendered.html.push_str(&appended.html);
+        rendered.outline.extend(appended.outline);
+        rendered.assets.extend(appended.assets);
+        rendered.warnings.absorb(appended.warnings);
+    }
     rendered
         .assets
         .extend(collected.into_iter().flat_map(|page| page.assets));
@@ -152,19 +151,23 @@ fn lift_open_items(events: &[Event], cx: &Context, collected: &mut Collected) {
 
 /// Assemble the Markdown appended to the TODO page: for each file with open tasks, in
 /// page order (R1.6), a linked file heading, then that file's open tasks as one raw-HTML
-/// list (R12.5). `collected` is parallel to `site.pages`.
+/// list (R12.5). Empty when no file has an open task, the `Collected Tasks` heading
+/// included, so nothing is rendered for them (R12.5). `collected` is parallel to
+/// `site.pages`.
 fn appendix(site: &Site, collected: &[Collected], appended_heading: bool) -> String {
+    if collected.iter().all(|page| page.html_items.is_empty()) {
+        return String::new();
+    }
+
     let mut out = String::new();
     if appended_heading {
         out.push_str("# Collected Tasks\n\n");
     }
 
-    let mut any = false;
     for (index, page_collected) in collected.iter().enumerate() {
         if page_collected.html_items.is_empty() {
             continue;
         }
-        any = true;
         let page = site.page(index);
         // The destination is the source path, so the ordinary link resolution of the
         // re-render turns it into the right href (R6.1).
@@ -174,10 +177,6 @@ fn appendix(site: &Site, collected: &[Collected], appended_heading: bool) -> Str
             escape_markdown(&page.title),
             page_collected.html_items.concat()
         ));
-    }
-
-    if !any {
-        out.push_str("No open tasks.\n");
     }
     out
 }
@@ -600,13 +599,15 @@ mod tests {
     }
 
     #[test]
-    fn r12_5_nothing_open_reads_no_open_tasks() {
+    fn r12_5_nothing_open_appends_nothing() {
         let site = Site {
             pages: vec![page("a.md")],
             ..Site::default()
         };
-        let out = appendix(&site, &[Collected::default()], true);
-        assert_eq!(out, "# Collected Tasks\n\nNo open tasks.\n");
+        for appended_heading in [true, false] {
+            let out = appendix(&site, &[Collected::default()], appended_heading);
+            assert_eq!(out, "", "appended_heading: {appended_heading}");
+        }
     }
 
     #[test]

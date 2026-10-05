@@ -156,6 +156,28 @@ fn r12_5_no_open_tasks_generates_no_todo_page() {
     assert!(!index.contains("No open tasks"), "no message: {index}");
 }
 
+/// R12.4 and R12.5: with no open task on any other page, an existing root `TODO.md`
+/// renders as it does without `--todo`: no `Collected Tasks` section and no message.
+#[test]
+fn r12_4_existing_todo_without_collected_tasks_renders_as_usual() {
+    let dir = TempDir::new().expect("create dir");
+    common::write_tree(
+        dir.path(),
+        &[
+            ("README.md", "# Home\n\n- [x] done\n"),
+            ("TODO.md", "# Roadmap\n\n- [ ] own task\n"),
+        ],
+    );
+    let out = TempDir::new().expect("create out");
+    let site = build(dir.path(), &out, &["--todo"]);
+
+    let todo = common::read_built(&site.join("TODO.html"));
+    let body = common::article_body(&todo);
+    assert!(body.contains("own task"), "own content: {body}");
+    assert!(!body.contains("Collected Tasks"), "no section: {body}");
+    assert!(!body.contains("No open tasks"), "no message: {body}");
+}
+
 /// R12.4: an existing root `TODO.md` renders as usual with a `Collected Tasks` section
 /// appended, and its own tasks are not collected into it again.
 #[test]
