@@ -135,16 +135,25 @@ fn r12_3_and_r12_5_synthetic_page_lists_tasks_under_file_headings() {
     );
 }
 
-/// R12.5: with no open task anywhere, the TODO page says so.
+/// R12.3 and R12.5: with no open task anywhere and no root `TODO.md`, no TODO page is
+/// generated, nothing is added to the sidebar, and no message stands in for the tasks.
 #[test]
-fn r12_5_no_open_tasks_reads_no_open_tasks() {
+fn r12_5_no_open_tasks_generates_no_todo_page() {
     let dir = TempDir::new().expect("create dir");
     common::write_tree(dir.path(), &[("README.md", "# Home\n\n- [x] done\n")]);
     let out = TempDir::new().expect("create out");
     let site = build(dir.path(), &out, &["--todo"]);
 
-    let todo = common::read_built(&site.join("TODO.html"));
-    assert!(common::article_body(&todo).contains("<p>No open tasks.</p>"));
+    assert!(
+        !site.join("TODO.html").exists(),
+        "no TODO page with nothing to collect"
+    );
+    let index = common::read_built(&site.join("index.html"));
+    assert!(
+        !index.contains("TODO.html"),
+        "the sidebar must not list a TODO page"
+    );
+    assert!(!index.contains("No open tasks"), "no message: {index}");
 }
 
 /// R12.4: an existing root `TODO.md` renders as usual with a `Collected Tasks` section
@@ -479,7 +488,10 @@ fn r12_3_synthetic_page_colliding_with_a_file_is_a_hard_error() {
     let dir = TempDir::new().expect("create dir");
     common::write_tree(
         dir.path(),
-        &[("README.md", "# Home\n"), ("TODO.html", "<p>mine</p>\n")],
+        &[
+            ("README.md", "# Home\n\n- [ ] task\n"),
+            ("TODO.html", "<p>mine</p>\n"),
+        ],
     );
     let out = TempDir::new().expect("create out");
     let out_path = out.path().join("site");
@@ -496,6 +508,25 @@ fn r12_3_synthetic_page_colliding_with_a_file_is_a_hard_error() {
         common::is_absent_or_empty(&out_path),
         "no output on failure"
     );
+}
+
+/// R12.3: with no open task to collect, no `TODO.html` is generated, so a file already
+/// at that path is not an error and, being referenced (R5.1), is copied as it is.
+#[test]
+fn r12_3_file_at_todo_html_is_kept_when_there_is_nothing_to_collect() {
+    let dir = TempDir::new().expect("create dir");
+    common::write_tree(
+        dir.path(),
+        &[
+            ("README.md", "# Home\n\n[mine](TODO.html)\n"),
+            ("TODO.html", "<p>mine</p>\n"),
+        ],
+    );
+    let out = TempDir::new().expect("create out");
+    let site = build(dir.path(), &out, &["--todo"]);
+
+    let copied = std::fs::read_to_string(site.join("TODO.html")).expect("file copied");
+    assert!(copied.contains("<p>mine</p>"), "{copied}");
 }
 
 /// R12.4: a `TODO.md` ending inside an unclosed fence or HTML block does not swallow the

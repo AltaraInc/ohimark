@@ -118,8 +118,9 @@ pub struct Site {
     pub by_source: std::collections::HashMap<String, SourceKind>,
     /// The sidebar navigation tree.
     pub nav: Vec<NavNode>,
-    /// With `--todo`, the index into `pages` of the root-level TODO page that
-    /// collected tasks are appended to (R12.3, R12.4); `None` without it.
+    /// The index into `pages` of the root-level TODO page that collected tasks are
+    /// appended to (R12.3, R12.4); `None` without `--todo`, or when there is no root
+    /// TODO file and no open task to collect.
     pub todo: Option<usize>,
 }
 

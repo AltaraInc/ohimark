@@ -14,6 +14,7 @@ use crate::links;
 use crate::model::{
     Error, NavNode, Page, Result, Site, SourceKind, SourceRel, TargetPath, Warnings,
 };
+use crate::todo;
 
 /// Everything read from disk, kept for the render pass.
 pub struct Planned {
@@ -98,15 +99,19 @@ pub fn plan(config: &Config) -> Result<Planned> {
 
     // R12.3 / R12.4: with `--todo`, the root-level TODO page collects every
     // open task. A root TODO file that is absent, excluded, ignored or
-    // unreadable is not a page, so a synthetic one stands in for it. Planned
-    // before the lookup map and the nav are built, so a synthetic page flows
-    // through both - and the collision check - like any other. It has no file
-    // behind it, which is safe: nothing after planning reads a page's source
-    // from disk.
+    // unreadable is not a page, so a synthetic one stands in for it - but only
+    // when some page has an open task to collect; with none, no TODO page is
+    // planned at all. Planned before the lookup map and the nav are built, so
+    // a synthetic page flows through both - and the collision check - like any
+    // other. It has no file behind it, which is safe: nothing after planning
+    // reads a page's source from disk.
     let mut todo_synthetic = false;
     let todo = if config.todo {
         match pages.iter().position(is_root_todo) {
             Some(index) => Some(index),
+            // R12.3: with no open task to collect, nothing is generated, so
+            // nothing is added to the sidebar and no file can be overwritten.
+            None if !sources.iter().any(|source| todo::has_open_task(source)) => None,
             None => {
                 let target = TargetPath::new(TODO_TARGET);
                 // R12.3: a file already at that path would be overwritten in the

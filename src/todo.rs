@@ -116,6 +116,14 @@ pub fn collect(page: &Page, markdown: &str, site: &Site, todo_target: &TargetPat
     collected
 }
 
+/// True when the page has an open task item at any depth, that is, when `collect` would
+/// lift something out of it (R12.2).
+#[must_use]
+pub fn has_open_task(markdown: &str) -> bool {
+    let events: Vec<Event> = Parser::new_ext(markdown, render::parser_options()).collect();
+    (0..events.len()).any(|index| task_state(&events, index) == Some(false))
+}
+
 /// What every lifted item is resolved against: the page it was written in, and the TODO
 /// page's directory it is emitted relative to.
 struct Context<'s> {
@@ -599,5 +607,13 @@ mod tests {
         };
         let out = appendix(&site, &[Collected::default()], true);
         assert_eq!(out, "# Collected Tasks\n\nNo open tasks.\n");
+    }
+
+    #[test]
+    fn r12_2_has_open_task_finds_an_open_item_at_any_depth() {
+        assert!(has_open_task("- [x] done\n- [ ] open\n"));
+        assert!(!has_open_task("- [x] done\n  - [x] nested done\n"));
+        assert!(has_open_task("- [x] done\n  - [ ] open under done\n"));
+        assert!(!has_open_task("# Title\n\n- plain\n\nNo tasks here.\n"));
     }
 }
