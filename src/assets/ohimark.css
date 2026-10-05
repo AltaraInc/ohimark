@@ -1058,6 +1058,12 @@ a.ohm-nav-label:hover {
   .ohm-nav-state:checked ~ .ohm-body .ohm-content {
     max-width: none;
   }
+
+  /* Override merman's intrinsic inline maximum when the navigation is collapsed. */
+  .ohm-nav-state:checked ~ .ohm-body .ohm-content .ohm-diagram-graphic > svg {
+    width: 100%;
+    max-width: 100% !important;
+  }
 }
 
 @media not all and (max-width: 1280px) {
@@ -1092,6 +1098,12 @@ a.ohm-nav-label:hover {
   .ohm-nav-state:checked ~ .ohm-body .ohm-content,
   .ohm-outline-state:checked ~ .ohm-body .ohm-content {
     max-width: none;
+  }
+
+  /* Override merman's intrinsic inline maximum when the outline is collapsed. */
+  .ohm-outline-state:checked ~ .ohm-body .ohm-content .ohm-diagram-graphic > svg {
+    width: 100%;
+    max-width: 100% !important;
   }
 }
 
