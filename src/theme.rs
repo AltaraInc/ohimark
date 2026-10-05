@@ -26,10 +26,10 @@ const PANEL_ICONS: &str = "<svg class=\"ohm-icon ohm-icon-collapse\" viewBox=\"0
 /// different pages necessarily yields different hrefs by depth (R11.1) while
 /// the structure, order and labels stay invariant (R4.7) — only the
 /// current-page marker moves.
-fn render_nav_list(nodes: &[NavNode], page: &Page, dir: &Utf8Path) -> String {
+fn render_nav_list(nodes: &[NavNode], page: &Page, dir: &Utf8Path, parent_path: &str) -> String {
     let mut out = String::new();
     for node in nodes {
-        render_nav_node(node, page, dir, &mut out);
+        render_nav_node(node, page, dir, parent_path, &mut out);
     }
     out
 }
@@ -56,7 +56,13 @@ fn render_nav_link(
     format!("<a class=\"ohm-nav-link{current_class}\"{current_attr} href=\"{href}\">{title}</a>")
 }
 
-fn render_nav_node(node: &NavNode, page: &Page, dir: &Utf8Path, out: &mut String) {
+fn render_nav_node(
+    node: &NavNode,
+    page: &Page,
+    dir: &Utf8Path,
+    parent_path: &str,
+    out: &mut String,
+) {
     match node {
         NavNode::Page { title, target } => {
             let link = render_nav_link(title, target, page, dir);
@@ -67,8 +73,16 @@ fn render_nav_node(node: &NavNode, page: &Page, dir: &Utf8Path, out: &mut String
             link,
             children,
         } => {
+            // Raw directory components cannot contain '/', so their joined
+            // path identifies each group independently of page depth or nav order.
+            let group_path = if parent_path.is_empty() {
+                label.clone()
+            } else {
+                format!("{parent_path}/{label}")
+            };
+            let children_html = render_nav_list(children, page, dir, &group_path);
+            let group_attr = escape_html(&group_path);
             let label = escape_html(label);
-            let children_html = render_nav_list(children, page, dir);
             match link {
                 // R4.2: a directory whose own page's stem folds to the
                 // directory name is a link to that page.
@@ -76,13 +90,13 @@ fn render_nav_node(node: &NavNode, page: &Page, dir: &Utf8Path, out: &mut String
                     let href = links::relative_to(dir, target.as_path());
                     let (current_class, current_attr) = current_marker(*target == page.target);
                     out.push_str(&format!(
-                        "<li class=\"ohm-nav-group\"><details class=\"ohm-nav-details\" open><summary class=\"ohm-nav-summary\"><a class=\"ohm-nav-link ohm-nav-label{current_class}\"{current_attr} href=\"{href}\">{label}</a></summary><ul class=\"ohm-nav-list\">{children_html}</ul></details></li>"
+                        "<li class=\"ohm-nav-group\"><details class=\"ohm-nav-details\" data-ohm-nav-group=\"{group_attr}\" open><summary class=\"ohm-nav-summary\"><a class=\"ohm-nav-link ohm-nav-label{current_class}\"{current_attr} href=\"{href}\">{label}</a></summary><ul class=\"ohm-nav-list\">{children_html}</ul></details></li>"
                     ));
                 }
                 // R4.3: otherwise the node is a plain label with no link.
                 None => {
                     out.push_str(&format!(
-                        "<li class=\"ohm-nav-group\"><details class=\"ohm-nav-details\" open><summary class=\"ohm-nav-summary\"><span class=\"ohm-nav-label\">{label}</span></summary><ul class=\"ohm-nav-list\">{children_html}</ul></details></li>"
+                        "<li class=\"ohm-nav-group\"><details class=\"ohm-nav-details\" data-ohm-nav-group=\"{group_attr}\" open><summary class=\"ohm-nav-summary\"><span class=\"ohm-nav-label\">{label}</span></summary><ul class=\"ohm-nav-list\">{children_html}</ul></details></li>"
                     ));
                 }
             }
@@ -145,7 +159,7 @@ pub fn shell(page: &Page, site: &Site, body: &str, outline: &[OutlineEntry]) -> 
         }
         _ => (None, site.nav.as_slice()),
     };
-    let nav = render_nav_list(sidebar_nav_nodes, page, dir);
+    let nav = render_nav_list(sidebar_nav_nodes, page, dir, "");
     let outline_html = render_outline(outline);
 
     let mut out = String::new();
@@ -434,31 +448,111 @@ mod tests {
         ];
         let site = site_with(vec![root.clone(), guide.clone(), note.clone()], nav);
 
-        // Viewed from the root page, which sits outside both groups: every
-        // group must still start expanded (R8.5).
+        // Without stored state or scripting, every group starts expanded (R8.5).
         let html = shell(&root, &site, "", &[]);
         let sidebar = extract_sidebar(&html);
 
         assert!(
             sidebar.contains(
-                "<li class=\"ohm-nav-group\"><details class=\"ohm-nav-details\" open><summary class=\"ohm-nav-summary\"><a class=\"ohm-nav-link ohm-nav-label\" href=\"docs/guide.html\">docs</a></summary>"
+                "<li class=\"ohm-nav-group\"><details class=\"ohm-nav-details\" data-ohm-nav-group=\"docs\" open><summary class=\"ohm-nav-summary\"><a class=\"ohm-nav-link ohm-nav-label\" href=\"docs/guide.html\">docs</a></summary>"
             ),
             "linked group not a details/summary starting open: {sidebar}"
         );
         assert!(
             sidebar.contains(
-                "<li class=\"ohm-nav-group\"><details class=\"ohm-nav-details\" open><summary class=\"ohm-nav-summary\"><span class=\"ohm-nav-label\">notes</span></summary>"
+                "<li class=\"ohm-nav-group\"><details class=\"ohm-nav-details\" data-ohm-nav-group=\"notes\" open><summary class=\"ohm-nav-summary\"><span class=\"ohm-nav-label\">notes</span></summary>"
             ),
             "unlinked group not a details/summary starting open: {sidebar}"
         );
         assert_eq!(
             sidebar
-                .matches("<details class=\"ohm-nav-details\" open>")
+                .matches("\" open><summary class=\"ohm-nav-summary\">")
                 .count(),
             2,
             "every group must render open: {sidebar}"
         );
         assert_eq!(sidebar.matches("</details>").count(), 2);
+    }
+
+    #[test]
+    fn r8_5_group_keys_follow_directory_paths_across_pages_and_nav_edits() {
+        fn group_keys(html: &str) -> Vec<&str> {
+            extract_sidebar(html)
+                .split("data-ohm-nav-group=\"")
+                .skip(1)
+                .map(|rest| rest.split_once('"').unwrap().0)
+                .collect()
+        }
+
+        let root = page("README.md", "index.html", "Home", true);
+        let nested = page(
+            r#"a & "b"/shared/leaf <one> & 'two'/page.md"#,
+            r#"a & "b"/shared/leaf <one> & 'two'/page.html"#,
+            "Nested",
+            false,
+        );
+        let nav = vec![
+            NavNode::Group {
+                label: "a & \"b\"".into(),
+                link: None,
+                children: vec![NavNode::Group {
+                    label: "shared".into(),
+                    link: None,
+                    children: vec![NavNode::Group {
+                        label: "leaf <one> & 'two'".into(),
+                        link: Some(nested.target.clone()),
+                        children: vec![],
+                    }],
+                }],
+            },
+            NavNode::Group {
+                label: "other".into(),
+                link: None,
+                children: vec![NavNode::Group {
+                    label: "shared".into(),
+                    link: None,
+                    children: vec![],
+                }],
+            },
+        ];
+        let mut site = site_with(vec![root.clone(), nested.clone()], nav);
+        let expected = vec![
+            "a &amp; &quot;b&quot;",
+            "a &amp; &quot;b&quot;/shared",
+            "a &amp; &quot;b&quot;/shared/leaf &lt;one&gt; &amp; &#39;two&#39;",
+            "other",
+            "other/shared",
+        ];
+
+        // Ancestor labels are escaped only at emission, and repeated labels
+        // in separate branches retain separate site-root-relative identities.
+        let on_root = shell(&root, &site, "", &[]);
+        let on_nested = shell(&nested, &site, "", &[]);
+        assert_eq!(group_keys(&on_root), expected);
+        assert_eq!(group_keys(&on_nested), expected);
+
+        site.nav.reverse();
+        site.nav.insert(
+            0,
+            NavNode::Group {
+                label: "new".into(),
+                link: None,
+                children: vec![],
+            },
+        );
+        let after_nav_edits = shell(&nested, &site, "", &[]);
+        let edited_keys = group_keys(&after_nav_edits);
+        assert_eq!(edited_keys.len(), expected.len() + 1);
+        for key in expected {
+            assert_eq!(
+                edited_keys
+                    .iter()
+                    .filter(|&&candidate| candidate == key)
+                    .count(),
+                1,
+                "existing group key changed after sorting or insertion: {key}"
+            );
+        }
     }
 
     #[test]

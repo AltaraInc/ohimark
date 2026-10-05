@@ -405,6 +405,73 @@
     syncOutlineButton();
   }
 
+  function preserveSidebarGroups() {
+    var groups = document.querySelectorAll(".ohm-sidebar details.ohm-nav-details[data-ohm-nav-group]");
+    var brand = document.querySelector(".ohm-brand[href]");
+    if (!groups.length || !brand) return;
+
+    // The resolved brand URL identifies the site even from nested pages.
+    var storageKey = "ohimark-sidebar-groups:" + brand.href;
+    var groupKeys = new Set();
+    var collapsedKeys = new Set();
+    var storedValue = null;
+    groups.forEach(function (group) {
+      groupKeys.add(group.getAttribute("data-ohm-nav-group"));
+    });
+
+    try {
+      storedValue = window.sessionStorage.getItem(storageKey);
+      var storedKeys = JSON.parse(storedValue);
+      if (Array.isArray(storedKeys)) {
+        storedKeys.forEach(function (key) {
+          if (typeof key === "string" && groupKeys.has(key)) {
+            collapsedKeys.add(key);
+          }
+        });
+      }
+    } catch (err) {
+      /* Unavailable storage or invalid JSON must not disable native groups. */
+    }
+
+    function writeCollapsedGroups() {
+      var value = collapsedKeys.size ? JSON.stringify(Array.from(collapsedKeys)) : null;
+      if (value === storedValue) return;
+      try {
+        if (value === null) {
+          window.sessionStorage.removeItem(storageKey);
+        } else {
+          window.sessionStorage.setItem(storageKey, value);
+        }
+        storedValue = value;
+      } catch (err) {
+        /* Persistence is best-effort, including blocked storage and quotas. */
+      }
+    }
+
+    groups.forEach(function (group) {
+      var key = group.getAttribute("data-ohm-nav-group");
+      if (collapsedKeys.has(key)) group.open = false;
+      var wasOpen = group.open;
+      group.addEventListener("toggle", function () {
+        // Initial and restoration toggles arrive asynchronously. Only an
+        // actual change from the restored state represents a new choice.
+        if (group.open === wasOpen) return;
+        wasOpen = group.open;
+        if (wasOpen) {
+          collapsedKeys.delete(key);
+        } else {
+          collapsedKeys.add(key);
+        }
+        writeCollapsedGroups();
+      });
+    });
+
+    // Drop obsolete keys and empty entries without writing on a first visit.
+    writeCollapsedGroups();
+  }
+
+  preserveSidebarGroups();
+
   /* =======================================================================
      6. One delegated click listener for every interactive control above,
      plus closing the mobile sidebar drawer on navigation.
