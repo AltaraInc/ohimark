@@ -942,6 +942,56 @@ a.ohm-nav-label:hover {
   margin: 0 auto;
 }
 
+.ohm-diagram-graphic svg .node rect.label-container,
+.ohm-diagram-graphic svg .cluster rect {
+  rx: 6px;
+  ry: 6px;
+}
+
+/* Gantt charts are drawn by ohimark itself (src/gantt.rs) and carry no colours
+   of their own, only these classes. */
+.ohm-gantt text {
+  font-family: var(--ohm-font-sans);
+  fill: var(--ohm-dg-text);
+}
+
+.ohm-gantt .ohm-gantt-tick,
+.ohm-gantt .ohm-gantt-marker-label {
+  fill: var(--ohm-dg-subtle-text);
+}
+
+.ohm-gantt-axis {
+  fill: none;
+  stroke: var(--ohm-dg-border);
+  stroke-width: 1px;
+}
+
+.ohm-gantt-bar {
+  fill: var(--ohm-dg-series-0);
+}
+
+.ohm-gantt-bar--done {
+  fill-opacity: 0.35;
+}
+
+.ohm-gantt-bar--active {
+  fill-opacity: 0.65;
+}
+
+.ohm-gantt-bar--crit {
+  fill: var(--ohm-dg-error);
+}
+
+.ohm-gantt-exclude {
+  fill: var(--ohm-dg-surface-muted);
+}
+
+.ohm-gantt-marker {
+  stroke: var(--ohm-dg-subtle-text);
+  stroke-width: 1px;
+  stroke-dasharray: 3 3;
+}
+
 .ohm-diagram-source {
   display: none;
   margin: 0;

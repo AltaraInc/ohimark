@@ -21,6 +21,7 @@ merman = "0.8.0-alpha.6"
 percent-encoding = "2"
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 rayon = "1"
+serde_json = "1"
 tempfile = "3"
 thiserror = "2"
 

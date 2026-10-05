@@ -21,7 +21,9 @@ use merman::svg::{
     CssOverridePolicy, HostTheme, HostThemeAppearance, Presentation, PresentationRenderPolicy,
     SvgOutputPolicy, SvgPipelinePreset, SvgRenderOptions, ThemeRole, sanitize_svg_id,
 };
-use merman::{Engine, OperationControl, RenderOutput, RenderRequest, Renderer, SvgRequest};
+use merman::{
+    Engine, MermaidConfig, OperationControl, RenderOutput, RenderRequest, Renderer, SvgRequest,
+};
 
 use crate::links::{self, Resolved};
 use crate::model::{OutlineEntry, Page, Site, SourceRel, TargetPath, Warnings, escape_html};
@@ -462,6 +464,11 @@ impl Diagrams {
         theme = theme
             .try_with_series_palette(series_refs)
             .expect("sentinel colours are valid hex");
+        theme = theme
+            .try_with_font_family("var(--ohm-font-sans)")
+            .expect("font family is a valid CSS value")
+            .try_with_font_size("14px")
+            .expect("font size is a valid CSS value");
 
         // Literals merman hard-codes independently of the host theme (observed in the
         // integration spike). Inserted after the sentinel table and never overwriting it;
@@ -471,7 +478,29 @@ impl Diagrams {
         }
 
         let resolved = Presentation::new().with_theme(theme).resolve();
-        let renderer = Renderer::new().with_engine(resolved.materialize_engine(Engine::new()));
+        // Layout, merged after the theme so it wins. merman measures label text with a
+        // family-independent heuristic, so only the font size changes node sizes and
+        // `flowchart.padding` is the sole margin against a label overflowing its node: do
+        // not lower it below 12. Gantt charts are drawn by `crate::gantt` from merman's
+        // layout, so their block only sets the default tick label format (`Jan 05`); an
+        // `axisFormat` line in a diagram still overrides it.
+        let layout = MermaidConfig::from_value(serde_json::json!({
+            "fontSize": 14,
+            "flowchart": { "nodeSpacing": 30, "rankSpacing": 32, "padding": 12 },
+            "state": { "nodeSpacing": 30, "rankSpacing": 32 },
+            "sequence": {
+                "actorMargin": 32,
+                "width": 120,
+                "height": 44,
+                "diagramMarginX": 16,
+                "diagramMarginY": 8
+            },
+            "gantt": { "axisFormat": "%b %d" }
+        }));
+        let engine = resolved
+            .materialize_engine(Engine::new())
+            .with_site_config(layout);
+        let renderer = Renderer::new().with_engine(engine);
         let render_policy = resolved.render_policy();
 
         let (canvas_r, canvas_g, canvas_b) = sentinel_channels(0);
@@ -495,19 +524,19 @@ impl Diagrams {
     /// (R7.7). `unique_id` scopes the SVG's own `<style>` block and marker ids so several
     /// diagrams can share one HTML document.
     fn render(&self, source: &str, unique_id: &str) -> Result<String, String> {
-        let request = SvgRequest {
-            pipeline: Some(self.policy.pipeline()),
-            presentation: self.render_policy,
-            options: SvgRenderOptions {
-                diagram_id: Some(sanitize_svg_id(unique_id)),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        match self
-            .renderer
-            .render(RenderRequest::svg(source, OperationControl::new(), request))
+        // Gantt charts are drawn by `crate::gantt` from merman's computed layout. Whatever
+        // that path cannot draw falls through to merman's own SVG, so a gantt chart never
+        // fails harder than any other diagram.
+        if is_gantt_source(source)
+            && let Some(svg) = self.render_gantt(source, unique_id)
         {
+            return Ok(svg);
+        }
+        match self.renderer.render(RenderRequest::svg(
+            source,
+            OperationControl::new(),
+            self.request(unique_id),
+        )) {
             Ok(RenderOutput::Svg(Some(svg))) => {
                 Ok(substitute_svg_colors(svg.svg(), &self.color_map))
             }
@@ -515,6 +544,69 @@ impl Diagrams {
             Err(error) => Err(error.to_string()),
         }
     }
+
+    /// Draws a gantt chart from merman's layout, or `None` when merman produced no usable
+    /// layout for it.
+    fn render_gantt(&self, source: &str, unique_id: &str) -> Option<String> {
+        let request =
+            RenderRequest::layout_json(source, OperationControl::new(), self.request(unique_id));
+        let Ok(RenderOutput::LayoutJson(Some(output))) = self.renderer.render(request) else {
+            return None;
+        };
+        crate::gantt::render(output.layout(), &sanitize_svg_id(unique_id))
+    }
+
+    fn request(&self, unique_id: &str) -> SvgRequest {
+        SvgRequest {
+            pipeline: Some(self.policy.pipeline()),
+            presentation: self.render_policy,
+            options: SvgRenderOptions {
+                diagram_id: Some(sanitize_svg_id(unique_id)),
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+}
+
+/// Whether a Mermaid source declares a gantt chart: its first meaningful line starts with
+/// the word `gantt`, once blank lines, `%%` comments and directives and a leading `---`
+/// front-matter block are skipped. Purely textual, so no other diagram pays for a parse.
+fn is_gantt_source(source: &str) -> bool {
+    let mut lines = source.lines().map(str::trim).peekable();
+    while lines.next_if(|line| line.is_empty()).is_some() {}
+    if lines.next_if_eq(&"---").is_some() {
+        // An unterminated block consumes every line, which leaves nothing to match.
+        lines
+            .by_ref()
+            .take_while(|line| *line != "---")
+            .for_each(drop);
+    }
+    let mut in_directive = false;
+    for line in lines {
+        let rest = if in_directive || line.starts_with("%%{") {
+            // A directive may span lines and may share its last one with the declaration.
+            match line.split_once("}%%") {
+                Some((_, rest)) => {
+                    in_directive = false;
+                    rest.trim()
+                }
+                None => {
+                    in_directive = true;
+                    continue;
+                }
+            }
+        } else {
+            line
+        };
+        if rest.is_empty() || rest.starts_with("%%") {
+            continue;
+        }
+        return rest
+            .strip_prefix("gantt")
+            .is_some_and(|after| !after.starts_with(|c: char| c.is_alphanumeric() || c == '_'));
+    }
+    false
 }
 
 impl Default for Diagrams {
@@ -1120,6 +1212,231 @@ mod tests {
             let (r, g, b) = sentinel_channels(i);
             let hex = format!("#{r:02x}{g:02x}{b:02x}");
             assert!(!lower.contains(&hex), "sentinel {hex} leaked into output");
+        }
+    }
+
+    /// The width and height of an SVG's `viewBox`.
+    fn view_box_size(svg: &str) -> (f64, f64) {
+        let start = svg.find("viewBox=\"").expect("svg has a viewBox") + "viewBox=\"".len();
+        let end = start + svg[start..].find('"').expect("viewBox is closed");
+        let values: Vec<f64> = svg[start..end]
+            .split_whitespace()
+            .map(|value| value.parse().expect("viewBox value is a number"))
+            .collect();
+        assert_eq!(values.len(), 4, "viewBox has four values");
+        (values[2], values[3])
+    }
+
+    #[test]
+    fn diagram_text_uses_the_site_font() {
+        let diagrams = Diagrams::new();
+        let svg = diagrams
+            .render("flowchart TD\nA --> B", "font")
+            .expect("flowchart renders");
+        assert!(svg.contains("var(--ohm-font-sans)"));
+        assert!(svg.contains("14px"));
+        assert!(!svg.to_lowercase().contains("trebuchet"));
+    }
+
+    #[test]
+    fn diagrams_are_more_compact_than_merman_defaults() {
+        let source = "flowchart TD\nA[read the sources] -->|every page| B[render the markdown]\nB --> C[write the site]\nB --> D[copy the assets]\n";
+        let themed = Diagrams::new()
+            .render(source, "compact")
+            .expect("flowchart renders");
+        let request = RenderRequest::svg(source, OperationControl::new(), SvgRequest::default());
+        let Ok(RenderOutput::Svg(Some(default))) = Renderer::new().render(request) else {
+            panic!("default renderer renders the flowchart");
+        };
+        let (width, height) = view_box_size(&themed);
+        let (default_width, default_height) = view_box_size(default.svg());
+        assert!(
+            width < default_width,
+            "{width} is not narrower than {default_width}"
+        );
+        assert!(
+            height < default_height,
+            "{height} is not shorter than {default_height}"
+        );
+    }
+
+    /// The `x` and content of every `<text>` in a gantt chart that carries `class`.
+    fn gantt_texts<'a>(svg: &'a str, class: &str) -> Vec<(f64, &'a str)> {
+        let open = format!("<text class=\"{class}\" x=\"");
+        svg.match_indices(&open)
+            .map(|(at, _)| {
+                let rest = &svg[at + open.len()..];
+                let x = rest[..rest.find('"').expect("x is closed")]
+                    .parse()
+                    .expect("x is a number");
+                let content = &rest[rest.find('>').expect("tag is closed") + 1..];
+                (x, &content[..content.find('<').expect("text is closed")])
+            })
+            .collect()
+    }
+
+    /// Whether `svg` holds a `#rgb` or `#rrggbb` colour literal.
+    fn has_hex_colour(svg: &str) -> bool {
+        svg.match_indices('#').any(|(at, _)| {
+            let digits = svg[at + 1..]
+                .bytes()
+                .take_while(u8::is_ascii_hexdigit)
+                .count();
+            digits == 3 || digits == 6
+        })
+    }
+
+    #[test]
+    fn gantt_charts_are_drawn_by_the_site_renderer() {
+        let source = "gantt\ntitle Plan\ndateFormat YYYY-MM-DD\nexcludes weekends\nLoose :l1, 2026-01-02, 2d\nsection Design\nRequirements :done, a1, 2026-01-05, 10d\nReview :active, after a1, 5d\nFreeze :vert, v1, 2026-01-12, 0d\nsection Build\nRenderer :crit, 2026-01-20, 14d\nTheme :crit, active, 2026-01-22, 3d\nArchive :crit, done, 2026-01-26, 2d\nShip :milestone, 2026-02-12, 0d\n";
+        let svg = Diagrams::new()
+            .render(source, "gantt")
+            .expect("gantt chart renders");
+        assert!(svg.starts_with("<svg id=\"gantt\" class=\"ohm-gantt\""));
+
+        // All the writing sits in the column left of the vertical axis.
+        let axis = "<line class=\"ohm-gantt-axis\" x1=\"";
+        let axis = &svg[svg.find(axis).expect("chart has an axis") + axis.len()..];
+        let axis_x: f64 = axis[..axis.find('"').expect("x1 is closed")]
+            .parse()
+            .expect("x1 is a number");
+        let labels = |class: &str| -> Vec<&str> {
+            gantt_texts(&svg, class)
+                .into_iter()
+                .map(|(_, label)| label)
+                .collect()
+        };
+        assert_eq!(labels("ohm-gantt-title"), ["Plan"]);
+        assert_eq!(labels("ohm-gantt-section"), ["Design", "Build"]);
+        assert_eq!(
+            labels("ohm-gantt-task"),
+            [
+                "Loose",
+                "Requirements",
+                "Review",
+                "Renderer",
+                "Theme",
+                "Archive",
+                "Ship"
+            ]
+        );
+        for class in ["ohm-gantt-section", "ohm-gantt-task"] {
+            for (x, label) in gantt_texts(&svg, class) {
+                assert!(x < axis_x, "{label} at {x} is not left of the axis");
+            }
+        }
+
+        // One bar per task, a diamond for the milestone; the marker is a line with its
+        // own label and takes no row.
+        assert_eq!(svg.matches("class=\"ohm-gantt-bar").count(), 7);
+        assert_eq!(svg.matches("<path class=\"ohm-gantt-bar\"").count(), 1);
+        assert_eq!(svg.matches("<line class=\"ohm-gantt-marker\"").count(), 1);
+        assert_eq!(labels("ohm-gantt-marker-label"), ["Freeze"]);
+        assert_eq!(svg.matches("ohm-gantt-bar--done").count(), 2);
+        assert_eq!(svg.matches("ohm-gantt-bar--active").count(), 2);
+        assert_eq!(svg.matches("ohm-gantt-bar--crit").count(), 3);
+        assert!(svg.contains("class=\"ohm-gantt-bar ohm-gantt-bar--done ohm-gantt-bar--crit\""));
+        assert!(svg.contains("class=\"ohm-gantt-exclude\""));
+
+        // Colour and outline come from the stylesheet alone.
+        assert!(!svg.contains("stroke") && !svg.contains("fill"));
+        assert!(!svg.contains("<style") && !has_hex_colour(&svg));
+    }
+
+    #[test]
+    fn gantt_tick_labels_read_month_and_day_unless_the_chart_sets_a_format() {
+        let diagrams = Diagrams::new();
+        let source =
+            "gantt\ndateFormat YYYY-MM-DD\nsection Design\nRequirements :2026-01-05, 10d\n";
+        let svg = diagrams
+            .render(source, "ticks")
+            .expect("gantt chart renders");
+        let ticks = gantt_texts(&svg, "ohm-gantt-tick");
+        assert!(!ticks.is_empty());
+        for (_, label) in ticks {
+            let (month, day) = label.split_once(' ').expect("month and day");
+            assert!(
+                month.len() == 3 && month.bytes().all(|b| b.is_ascii_alphabetic()),
+                "{label}"
+            );
+            assert!(
+                day.len() == 2 && day.bytes().all(|b| b.is_ascii_digit()),
+                "{label}"
+            );
+        }
+
+        let explicit = source.replace("section", "axisFormat %Y-%m-%d\nsection");
+        let svg = diagrams
+            .render(&explicit, "ticks")
+            .expect("gantt chart renders");
+        let ticks = gantt_texts(&svg, "ohm-gantt-tick");
+        assert!(!ticks.is_empty());
+        for (_, label) in ticks {
+            assert!(label.starts_with("2026-01-"), "{label}");
+        }
+    }
+
+    #[test]
+    fn gantt_labels_are_escaped() {
+        let source = "gantt\ndateFormat YYYY-MM-DD\nsection R&D\nQ&A < 5 :2026-01-05, 3d\n";
+        let svg = Diagrams::new()
+            .render(source, "escape")
+            .expect("gantt chart renders");
+        assert!(svg.contains(">R&amp;D</text>"));
+        assert!(svg.contains(">Q&amp;A &lt; 5</text>"));
+    }
+
+    #[test]
+    fn gantt_accessible_title_and_description_are_kept() {
+        let source = "gantt\naccTitle: Release plan\naccDescr: Dates for the release\ndateFormat YYYY-MM-DD\nsection Design\nRequirements :2026-01-05, 10d\n";
+        let svg = Diagrams::new()
+            .render(source, "acc")
+            .expect("gantt chart renders");
+        assert!(svg.contains(" aria-labelledby=\"chart-title-acc\""));
+        assert!(svg.contains(" aria-describedby=\"chart-desc-acc\""));
+        assert!(svg.contains("<title id=\"chart-title-acc\">Release plan</title>"));
+        assert!(svg.contains("<desc id=\"chart-desc-acc\">Dates for the release</desc>"));
+    }
+
+    #[test]
+    fn gantt_chart_without_tasks_falls_back_to_merman() {
+        let diagrams = Diagrams::new();
+        let source = "gantt\ntitle Empty\ndateFormat YYYY-MM-DD\n";
+        assert!(diagrams.render_gantt(source, "empty").is_none());
+        let svg = diagrams
+            .render(source, "empty")
+            .expect("merman still renders it");
+        assert!(!svg.contains("ohm-gantt"));
+    }
+
+    #[test]
+    fn only_gantt_charts_leave_the_merman_renderer() {
+        let source = "flowchart TD\nA --> B";
+        let diagrams = Diagrams::new();
+        assert!(diagrams.render_gantt(source, "flow").is_none());
+        let svg = diagrams.render(source, "flow").expect("flowchart renders");
+        assert!(!svg.contains("ohm-gantt"));
+        assert!(svg.contains("var(--ohm-dg-"));
+
+        for gantt in [
+            "gantt\n",
+            "  gantt\ntitle Plan\n",
+            "\n%% a comment\n%%{init: {\"gantt\": {\"barHeight\": 20}}}%%\ngantt\n",
+            "%%{init: {\n  \"gantt\": {\"barHeight\": 20}\n}}%%\ngantt\n",
+            "%%{init: {\"theme\": \"dark\"}}%% gantt\n",
+            "---\ntitle: Plan\n---\ngantt\n",
+        ] {
+            assert!(is_gantt_source(gantt), "{gantt:?}");
+        }
+        for other in [
+            "",
+            source,
+            "flowchart TD\ngantt --> B",
+            "ganttish\n",
+            "---\ntitle: gantt\n---\nflowchart TD\nA --> B",
+            "---\ngantt\n",
+        ] {
+            assert!(!is_gantt_source(other), "{other:?}");
         }
     }
 }

@@ -4,6 +4,7 @@
 
 pub mod cli;
 pub mod emit;
+mod gantt;
 pub mod links;
 pub mod model;
 pub mod plan;

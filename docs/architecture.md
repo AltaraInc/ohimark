@@ -131,6 +131,15 @@ toggle needs no JavaScript; `max-width: 100%` with `height: auto` scales it to a
 viewport, also without JavaScript. A diagram that fails to render warns and falls back to
 an ordinary code block.
 
+Diagram text uses the site font stack through `--ohm-font-sans` at 14px, with node and
+rank spacing tightened from Mermaid's defaults. `merman` sizes each label with a heuristic
+that ignores the font family, so node padding is the only margin against a label
+overflowing its box. Gantt charts are the exception: `merman` only computes their layout
+(bar positions, axis ticks), and ohimark's own minimal renderer draws the SVG from it.
+Every section and task label sits in a left column, the chart area holds nothing but
+unoutlined bars, and a single axis with date ticks runs along the bottom. That SVG carries
+no colours of its own, only classes styled in the stylesheet's diagram section.
+
 Diagram layout is the most expensive thing the build does, which is what makes the
 parallel render pass worth having.
 
