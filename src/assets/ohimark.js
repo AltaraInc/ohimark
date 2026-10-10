@@ -24,6 +24,8 @@
     clipboard: '<svg class="ohm-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"/></svg>',
     check: '<svg class="ohm-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 6 9 17l-5-5"/></svg>',
     code: '<svg class="ohm-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m9 8-5 4 5 4M15 8l5 4-5 4"/></svg>',
+    fullscreen: '<svg class="ohm-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3"/></svg>',
+    fullscreenExit: '<svg class="ohm-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 3v3a2 2 0 0 1-2 2H3M16 3v3a2 2 0 0 0 2 2h3M21 16h-3a2 2 0 0 0-2 2v3M8 21v-3a2 2 0 0 0-2-2H3"/></svg>',
   };
 
   /* =======================================================================
@@ -117,6 +119,22 @@
 
     actions.appendChild(copyButton);
     actions.appendChild(toggleButton);
+
+    if (
+      document.fullscreenEnabled &&
+      typeof document.exitFullscreen === "function" &&
+      typeof figure.requestFullscreen === "function"
+    ) {
+      var fullscreenButton = document.createElement("button");
+      fullscreenButton.type = "button";
+      fullscreenButton.className = "ohm-icon-button ohm-diagram-fullscreen";
+      fullscreenButton.setAttribute("aria-pressed", "false");
+      fullscreenButton.setAttribute("aria-label", "Enter diagram fullscreen");
+      fullscreenButton.setAttribute("title", "Enter diagram fullscreen");
+      fullscreenButton.innerHTML = ICONS.fullscreen;
+      actions.appendChild(fullscreenButton);
+    }
+
     figure.appendChild(actions);
   });
 
@@ -127,6 +145,44 @@
     button.setAttribute("aria-expanded", showingSource ? "true" : "false");
     button.setAttribute("aria-label", showingSource ? "Show diagram" : "Show diagram source");
   }
+
+  function syncDiagramFullscreenButtons() {
+    document.querySelectorAll(".ohm-diagram-fullscreen").forEach(function (button) {
+      var figure = button.closest(".ohm-diagram");
+      var isFullscreen = !!figure && document.fullscreenElement === figure;
+      var label = isFullscreen ? "Exit diagram fullscreen" : "Enter diagram fullscreen";
+      button.innerHTML = isFullscreen ? ICONS.fullscreenExit : ICONS.fullscreen;
+      button.setAttribute("aria-pressed", isFullscreen ? "true" : "false");
+      button.setAttribute("aria-label", label);
+      button.setAttribute("title", label);
+    });
+  }
+
+  function syncAfterFullscreenChange(result) {
+    if (result && typeof result.then === "function") {
+      result.then(syncDiagramFullscreenButtons, syncDiagramFullscreenButtons);
+      return;
+    }
+    syncDiagramFullscreenButtons();
+  }
+
+  function toggleDiagramFullscreen(button) {
+    var figure = button.closest(".ohm-diagram");
+    if (!figure) return;
+
+    try {
+      if (document.fullscreenElement === figure) {
+        syncAfterFullscreenChange(document.exitFullscreen());
+      } else {
+        syncAfterFullscreenChange(figure.requestFullscreen());
+      }
+    } catch (err) {
+      syncDiagramFullscreenButtons();
+    }
+  }
+
+  document.addEventListener("fullscreenchange", syncDiagramFullscreenButtons);
+  syncDiagramFullscreenButtons();
 
   /* =======================================================================
      3. Code-block copy buttons (R8.10)
@@ -500,6 +556,12 @@
     var toggleButton = target.closest(".ohm-diagram-toggle");
     if (toggleButton) {
       toggleDiagram(toggleButton);
+      return;
+    }
+
+    var fullscreenButton = target.closest(".ohm-diagram-fullscreen");
+    if (fullscreenButton) {
+      toggleDiagramFullscreen(fullscreenButton);
       return;
     }
 

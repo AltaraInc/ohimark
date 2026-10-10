@@ -930,7 +930,7 @@ a.ohm-nav-label:hover {
   overflow-x: auto;
   max-width: 100%;
   background: var(--ohm-dg-canvas);
-  border: 1px solid var(--ohm-border);
+  border: 0;
   border-radius: 8px;
   padding: 1rem;
 }
@@ -1015,6 +1015,64 @@ a.ohm-nav-label:hover {
   z-index: 1;
   display: flex;
   gap: 0.25rem;
+}
+
+/* Keep diagram controls reachable while fullscreen content uses the rest of
+   the viewport. The SVG's intrinsic ratio is preserved while both dimensions
+   are constrained to the graphic area. */
+.ohm-diagram:fullscreen {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 3.25rem 1rem 1rem;
+  overflow: hidden;
+  background: var(--ohm-dg-canvas);
+  color: var(--ohm-dg-text);
+}
+
+.ohm-diagram:fullscreen .ohm-diagram-actions {
+  top: 0.5rem;
+  right: 0.5rem;
+}
+
+.ohm-diagram:fullscreen:not(.ohm-diagram--source) .ohm-diagram-graphic {
+  border-radius: 0;
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+.ohm-diagram:fullscreen:not(.ohm-diagram--source) .ohm-diagram-graphic > svg {
+  flex: 0 1 auto;
+  min-width: 0;
+  min-height: 0;
+  width: auto !important;
+  height: auto !important;
+  max-width: 100% !important;
+  max-height: 100% !important;
+}
+
+.ohm-diagram:fullscreen.ohm-diagram--source .ohm-diagram-source {
+  display: block;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  box-sizing: border-box;
+  width: 100%;
 }
 
 /* =========================================================================
