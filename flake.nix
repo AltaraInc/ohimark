@@ -58,15 +58,12 @@
       };
     });
 
-    apps = forEachSupportedSystem ({ pkgs }: {
+    apps = forEachSupportedSystem ({ pkgs }: rec {
       default = {
         type = "app";
         program = "${pkgs.${pname}}/bin/${pname}";
       };
-      ${pname} = {
-        type = "app";
-        program = "${pkgs.${pname}}/bin/${pname}";
-      };
+      ${pname} = default;
       # Render this repository's Markdown (root file `README.md`) and serve
       # it; both apps take the port as an argument, defaulting to 8080.
       docs = {

@@ -22,9 +22,10 @@ let
       " --theme ${lib.escapeShellArg theme}"
     else
       throw "unsupported docs theme; expected null, 'default', or 'bookish'";
+  renderCommand = "${lib.getExe package}${themeOption} --todo";
 
   # Optional stylesheet applied to both docs outputs. Accept a Nix path within
-  # this repository or a repo-relative string such as `themes/bookish.css`.
+  # this repository or a repo-relative string such as `styles/overrides.css`.
   stylesheetRelative =
     if stylesheet == null then
       null
@@ -39,19 +40,16 @@ let
         throw "docs stylesheet path must be inside this repository"
     else
       stylesheet;
-  stylesheetSource =
+  stylesheetOption =
     if stylesheetRelative == null then
-      null
-    else
-      builtins.path {
+      ""
+    else let
+      source = builtins.path {
         path = ../. + "/${stylesheetRelative}";
         name = "${pname}-docs.css";
       };
-  stylesheetOption =
-    if stylesheetSource == null then
-      ""
-    else
-      " --stylesheet ${lib.escapeShellArg "${stylesheetSource}"}";
+    in
+    " --stylesheet ${lib.escapeShellArg "${source}"}";
   stylesheetRepoOption =
     if stylesheetRelative == null then
       ""
@@ -77,7 +75,7 @@ let
   # by the very tool it describes ("dogfooding"). `--todo` collects the open
   # task-list items into the site's `TODO.html` page.
   docs = runCommand "${pname}-docs" { } ''
-    ${lib.getExe package}${themeOption}${stylesheetOption} --todo --out $out ${docsRoot}
+    ${renderCommand}${stylesheetOption} --out $out ${docsRoot}
   '';
 
   # The wrappers below serve the *working tree* rather than the sealed `docs`
@@ -88,14 +86,9 @@ let
   #   OHIMARK_DOCS_REPO   working tree to render (default: the git toplevel)
   #   OHIMARK_DOCS_STATE  cache directory holding the served site
   #
-  # `OHIMARK_DOCS_STATE` defaults to a stable path, reused across runs rather
-  # than created fresh each time, because neither wrapper has a reliable place
-  # to clean one up: `serve` execs into the server and never regains control,
-  # `watch`'s trap only reaps the server it backgrounded, and a trap would not
-  # fire on `SIGKILL` or a crash in any case. Reuse is safe because
-  # `build` replaces the served directory's contents on every render, so
-  # nothing stale survives. Overriding the variable is what lets two servers
-  # on different ports run without sharing one directory.
+  # `OHIMARK_DOCS_STATE` defaults to a stable path reused across runs. Each
+  # render replaces its site's contents; concurrent servers can use distinct
+  # state directories.
 
   # `PORT` handling, shared so both wrappers present the same command line:
   # `NAME [PORT]`, defaulting to 8080. Validated here rather than left to
@@ -124,15 +117,14 @@ let
       state="''${OHIMARK_DOCS_STATE:?must be set by ${pname}-docs}"
 
       # `--out` has to be empty or absent, so each render goes to a fresh
-      # staging directory and then replaces the served directory's
-      # *contents*: static-web-server resolves its root once at startup, so
-      # that directory has to keep its identity across rebuilds. `--todo`
-      # collects the open task-list items into the site's `TODO.html` page.
+      # staging directory before replacing the served directory's contents:
+      # static-web-server resolves its root once at startup, so that directory
+      # has to keep its identity across rebuilds.
       mkdir -p "$state/site"
       rm -rf "$state/next"
       # Configured stylesheet paths are literal filenames, including dollar signs.
       # shellcheck disable=SC2016
-      ${lib.getExe package}${themeOption} --todo --out "$state/next" --root README.md "$repo"${stylesheetRepoOption}
+      ${renderCommand} --out "$state/next" --root README.md "$repo"${stylesheetRepoOption}
       find "$state/site" -mindepth 1 -delete
       cp -R "$state/next/." "$state/site/"
       rm -rf "$state/next"
