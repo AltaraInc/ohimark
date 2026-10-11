@@ -23,6 +23,8 @@ rustPlatform.buildRustPackage {
       ../Cargo.toml
       ../Cargo.lock
       ../src
+      ../themes/default.css
+      ../themes/bookish.css
       (lib.fileset.maybeMissing ../.cargo)
       (lib.fileset.maybeMissing ../build.rs)
       (lib.fileset.maybeMissing ../tests)

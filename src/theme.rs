@@ -11,11 +11,17 @@ use crate::model::{NavNode, OutlineEntry, Page, Site, escape_html};
 /// The site's minimal base stylesheet, embedded at compile time (R8.7:
 /// nothing is fetched at runtime).
 pub const STYLE_CSS: &str = include_str!("assets/ohimark.css");
+/// The optional default preset, embedded at compile time.
+pub const DEFAULT_THEME_CSS: &str = include_str!("../themes/default.css");
+/// The optional bookish preset, embedded at compile time.
+pub const BOOKISH_THEME_CSS: &str = include_str!("../themes/bookish.css");
 /// The site script, embedded at compile time.
 pub const APP_JS: &str = include_str!("assets/ohimark.js");
 
 /// Output-relative path the stylesheet is written to.
 pub const STYLE_PATH: &str = "assets/ohimark.css";
+/// Output-relative path the selected built-in theme is written to.
+pub const THEME_STYLE_PATH: &str = "assets/theme.css";
 /// Output-relative path the optional custom stylesheet is copied to.
 pub const CUSTOM_STYLE_PATH: &str = "assets/custom.css";
 /// Output-relative path the script is written to.
@@ -140,15 +146,16 @@ fn render_outline(outline: &[OutlineEntry]) -> String {
 /// always name an explicit `.html` file, never a directory, so the site
 /// works over `file://`.
 pub fn shell(page: &Page, site: &Site, body: &str, outline: &[OutlineEntry]) -> String {
-    shell_with_stylesheets(page, site, body, outline, false)
+    shell_with_stylesheets(page, site, body, outline, false, false)
 }
 
-/// Render the shell with the bundled and optional custom stylesheet.
+/// Render the shell with the base, optional preset, then optional custom stylesheet.
 pub(crate) fn shell_with_stylesheets(
     page: &Page,
     site: &Site,
     body: &str,
     outline: &[OutlineEntry],
+    include_theme: bool,
     include_stylesheet: bool,
 ) -> String {
     let dir = page.target.dir();
@@ -185,6 +192,12 @@ pub(crate) fn shell_with_stylesheets(
     out.push_str("<link rel=\"stylesheet\" href=\"");
     out.push_str(&style_href);
     out.push_str("\">\n");
+    if include_theme {
+        let theme_style_href = links::relative_to(dir, Utf8Path::new(THEME_STYLE_PATH));
+        out.push_str("<link rel=\"stylesheet\" href=\"");
+        out.push_str(&theme_style_href);
+        out.push_str("\">\n");
+    }
     if include_stylesheet {
         let custom_style_href = links::relative_to(dir, Utf8Path::new(CUSTOM_STYLE_PATH));
         out.push_str("<link rel=\"stylesheet\" href=\"");
@@ -311,12 +324,25 @@ mod tests {
         let todo = page("TODO.md", "TODO.html", "TODO", false);
         let site = site_with(vec![root.clone(), nested.clone(), todo.clone()], vec![]);
         for (page, prefix) in [(&root, ""), (&nested, "../../"), (&todo, "")] {
-            for include_stylesheet in [false, true] {
-                let html =
-                    shell_with_stylesheets(page, &site, "<p>Body</p>", &[], include_stylesheet);
+            for (include_theme, include_stylesheet) in
+                [(false, false), (true, false), (false, true), (true, true)]
+            {
+                let html = shell_with_stylesheets(
+                    page,
+                    &site,
+                    "<p>Body</p>",
+                    &[],
+                    include_theme,
+                    include_stylesheet,
+                );
                 let mut expected = vec![format!(
                     "<link rel=\"stylesheet\" href=\"{prefix}assets/ohimark.css\">"
                 )];
+                if include_theme {
+                    expected.push(format!(
+                        "<link rel=\"stylesheet\" href=\"{prefix}assets/theme.css\">"
+                    ));
+                }
                 if include_stylesheet {
                     expected.push(format!(
                         "<link rel=\"stylesheet\" href=\"{prefix}assets/custom.css\">"
@@ -332,9 +358,10 @@ mod tests {
 
             let default_html = shell(page, &site, "<p>Body</p>", &[]);
             assert!(!default_html.contains("custom.css"));
+            assert!(!default_html.contains("assets/theme.css"));
             assert_eq!(
                 default_html,
-                shell_with_stylesheets(page, &site, "<p>Body</p>", &[], false)
+                shell_with_stylesheets(page, &site, "<p>Body</p>", &[], false, false)
             );
         }
     }

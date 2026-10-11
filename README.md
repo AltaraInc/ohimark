@@ -14,38 +14,52 @@ Task list items (`- [ ]` and `- [x]`) render as checkboxes reflecting the marker
 
 ## Usage
 
-`ohimark` requires a root directory to start from and a directory to write to. It optionally accepts a root file (defaulting to `README.md`), exclusion globs, a custom stylesheet, and a flag to collect open tasks.
+`ohimark` requires a root directory to start from and a directory to write to. It optionally accepts a root file (defaulting to `README.md`), exclusion globs, a built-in theme, a custom stylesheet, and a flag to collect open tasks.
 
 ```sh
-ohimark --out OUTDIR [--root FILENAME] [--exclude GLOB]... [--todo] [--stylesheet FILE] DIR
+ohimark --out OUTDIR [--root FILENAME] [--exclude GLOB]... [--todo] [--theme default|bookish] [--stylesheet FILE] DIR
 ```
 
 - `--out` or `-o`: directory to write the generated static files to. Required; it must be empty or not yet exist.
 - `--root` or `-r`: the site's home page, given as a path relative to `DIR`. Defaults to `README.md`. It is emitted as `index.html`.
 - `--exclude`: a glob of paths to skip, in addition to the ignore files. Repeatable.
 - `--todo`: collect every unchecked task list item (`- [ ]`) from all pages into the root-level TODO page, under a heading linking each file, in page order. If `DIR` has a top-level `TODO.md`, the tasks are appended to it under a `Collected Tasks` heading and its own tasks are not repeated; otherwise a `TODO.html` page is generated. When there are no open tasks to collect, nothing is added and no `TODO.html` is generated. This only affects the HTML output: nothing is written to `DIR`. Off by default.
-- `--stylesheet FILE`: add a stylesheet after the minimal bundled base. The file must be an existing, readable regular file; its supplied and canonical paths must be UTF-8. Its contents are copied unchanged. It may be inside or outside `DIR`, including a file ignored or excluded from discovery. Relative paths are resolved from the current working directory; absolute paths are also accepted. If repeated, the last value is used.
+- `--theme default|bookish`: use an embedded visual preset. If repeated, the last value is used; other values are rejected.
+- `--stylesheet FILE`: add a stylesheet after the minimal bundled base and any selected preset. The file must be an existing, readable regular file; its supplied and canonical paths must be UTF-8. Its contents are copied unchanged. It may be inside or outside `DIR`, including a file ignored or excluded from discovery. Relative paths are resolved from the current working directory; absolute paths are also accepted. If repeated, the last value is used.
 
 ### Custom styles
 
-The bundled CSS is a minimal base. Without `--stylesheet`, pages use browser-native
-fonts, colors and element defaults; the base keeps navigation, panels and diagrams
-functional. Optional presentation styles are available in `themes/`:
+The bundled CSS is a minimal base. Without `--theme` and `--stylesheet`, pages use
+browser-native fonts, colors and element defaults; the base keeps navigation, panels
+and diagrams functional. Built-in presets are opt-in:
 
-- `default.css` gives a modern, neutral system-ui look.
-- `bookish.css` gives a warm-paper, serif look with red accents.
+- `default` gives a modern, neutral system-ui look, using the embedded
+  `themes/default.css` preset.
+- `bookish` gives a warm-paper, serif look with red accents, using the embedded
+  `themes/bookish.css` preset.
 
-Select a preset file through the custom stylesheet option:
+Choose either preset explicitly:
 
 ```sh
-ohimark --out site --stylesheet themes/default.css docs
-ohimark --out site --stylesheet themes/bookish.css docs
+ohimark --out site --theme default docs
+ohimark --out site --theme bookish docs
+ohimark --out site --theme default --stylesheet overrides.css docs
 ```
 
-Pages link the minimal base, followed by `assets/custom.css`, with paths relative
-to each page, including nested pages. A later rule wins when specificity is equal.
-Override the `--ohm-*` custom properties and match the site's light and dark theme
-selectors. Custom CSS can style native elements explicitly, as in this example:
+The normal flake app accepts the same flags; this uses the embedded preset and needs
+no preset file in the working directory:
+
+```sh
+nix run .# -- --theme bookish --out site docs
+```
+
+`--theme` copies the selected preset's embedded bytes to `assets/theme.css`, so the
+runtime does not need a `themes/` directory or preset file. When both options are
+used, pages link the minimal base, then the preset, then `assets/custom.css`; each
+link is relative to the page, including nested pages. A later rule wins when
+specificity is equal. You can override the `--ohm-*` custom properties and match the
+site's light and dark theme selectors. Presets apply presentation rules to common
+elements; custom CSS can style native elements explicitly, as in this example:
 
 ```css
 :root {

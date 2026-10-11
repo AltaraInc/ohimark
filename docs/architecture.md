@@ -13,7 +13,7 @@ shape of the code that produces it.
 
 ```mermaid
 flowchart TD
-  ARGS["argv"] -->|"parse and validate --stylesheet"| CFG["Config"]
+  ARGS["argv"] -->|"parse and validate --theme and --stylesheet"| CFG["Config"]
   CFG -->|"root directory, excludes"| WALK["Discover sources"]
   WALK -->|"ordered source set"| READ["Read files and extract titles<br/>(parallel)"]
   READ -->|"titles and retained bytes"| MAP["Build source-to-target map,<br/>detect collisions, build nav tree"]
@@ -25,7 +25,8 @@ flowchart TD
   STAGE["Stage in temp dir outside DIR"]
   STAGE -->|"rendered pages"| PAGES["Write pages"]
   PAGES -->|"bundled CSS and JS"| TH["Write minimal base assets"]
-  TH -->|"optional exact-byte copy"| CUSTOM["Copy custom.css"]
+  TH -->|"optional embedded preset bytes"| PRESET["Copy theme.css"]
+  PRESET -->|"optional exact-byte copy"| CUSTOM["Copy custom.css"]
   CUSTOM -->|"referenced Markdown assets"| COPY["Copy assets"]
   COPY -->|"move, on success only"| OUT["--out"]
 ```
@@ -58,13 +59,13 @@ graph LR
 
 | Module | Responsibility | Key items |
 | --- | --- | --- |
-| `cli` | clap definitions; validates and normalises argv into a `Config` | `Args`, `Config` |
+| `cli` | clap definitions; validates and normalises argv into a `Config` | `Args`, `Config`, `PresetTheme` |
 | `model` | shared domain types, errors, and the warning sink; no I/O | `SourceRel`, `TargetPath`, `Page`, `Site`, `NavNode`, `Warnings` |
 | `plan` | ignore-aware walk, `--exclude` overrides, source-to-target mapping, collision detection, root-file resolution, titles, nav tree | `plan()` |
 | `render` | Markdown event stream to HTML; anchors, outline, code fences, Mermaid | `render_page()`, `render_part()` |
 | `links` | relative reference resolution, plus the POSIX path helpers it needs | `resolve()`, `fold()`, `normpath()`, `relpath()` |
-| `theme` | page shell, sidebar, outline rail; minimal base CSS and JS; optional custom stylesheet links | `shell()`, `STYLE_CSS`, `APP_JS` |
-| `emit` | CSS collision preflight, temp staging, custom stylesheet copy, referenced asset copy, move into `--out` | `emit()` |
+| `theme` | page shell, sidebar, outline rail; minimal base CSS and JS; embedded presets; optional theme and custom stylesheet links | `shell()`, `STYLE_CSS`, `APP_JS` |
+| `emit` | CSS collision preflight, temp staging, preset and custom stylesheet copies, referenced asset copy, move into `--out` | `emit()` |
 | `todo` | `--todo`: lifts open task items out of every page and appends them to the root TODO page | `collect()`, `render_page()` |
 
 Eight modules and a `lib.rs` that sequences them. Discovery lives in `plan` because a
@@ -82,8 +83,10 @@ is what needs them.
 - `Warnings` — an ordered sink; everything in it reaches stderr and nothing in it affects the exit code.
 
 The public `Args` and `Config` structs expose the optional stylesheet path as
-`stylesheet` (`Option<PathBuf>` and `Option<Utf8PathBuf>`, respectively). Code that
-constructs either struct with a literal must provide this field (`None` when unused).
+`stylesheet` (`Option<PathBuf>` and `Option<Utf8PathBuf>`, respectively), and the
+optional `theme` as `Option<PresetTheme>`. `PresetTheme` is re-exported from the crate
+root. Code that constructs either struct with a literal must provide both fields
+(`None` when unused).
 
 ## Rendering a page
 
@@ -97,29 +100,32 @@ One pass over the Markdown event stream, with five interceptions:
 
 `theme::shell` then wraps the result, taking the nav tree, the page's outline and its body.
 It retains its public signature and emits the base-only page shell. During output assembly,
-an internal helper adds a relative custom stylesheet link after the bundled stylesheet,
-adjusted for the page's output depth.
+an internal helper adds relative links for the selected preset and custom stylesheet after
+the base stylesheet, in that order, adjusted for the page's output depth.
 
 ## Custom stylesheet
 
-The bundled stylesheet is a minimal base that preserves the navigation, panel and
-diagram scaffold while leaving typography, color and element defaults to the browser.
-Optional presentation styles live in `themes/default.css` and `themes/bookish.css`;
-select either file with `--stylesheet`.
-
+The bundled stylesheet is a minimal base that preserves the navigation, panel and diagram
+scaffold while leaving typography, color and element defaults to the browser. The optional
+`--theme default` and `--theme bookish` selections copy the embedded bytes of
+`themes/default.css` or `themes/bookish.css` to `assets/theme.css`; no runtime theme file is
+needed. Without a selected theme or custom stylesheet, output keeps the browser-native
+defaults.
 `--stylesheet` selects one local CSS file from outside or inside `DIR`; it is independent
 of Markdown discovery and ignore rules. The supplied path and its canonical path must be
 UTF-8, and the path must name a readable regular file. The file contents may be arbitrary
 bytes and are preserved unchanged.
 Once rendered destinations are known, a selected custom file is read once and output
-assembly checks the reserved `assets/custom.css` output path for
+assembly checks each enabled reserved path (`assets/theme.css` and `assets/custom.css`) for
 casefolded exact or component-boundary ancestor/descendant conflicts with emitted pages or
 referenced Markdown assets. Unreferenced non-Markdown assets do not conflict. A conflict
-aborts the build before staging. Otherwise the custom stylesheet bytes are copied unchanged into the stage before publication. Read, write or collision
+aborts the build before staging. Otherwise the selected preset bytes and custom stylesheet
+bytes are copied unchanged into the stage before publication. Read, write or collision
 failures leave `--out` absent or empty.
 
 The CSS is not parsed or rewritten. `url()` and `@import` dependencies are not copied or
-fetched; relative URLs resolve from the CSS file's output path (`assets/custom.css`), so authors must include or provide referenced resources in a way
+fetched; relative URLs resolve from the CSS file's output path (`assets/theme.css` or
+`assets/custom.css`), so authors must include or provide referenced resources in a way
 that keeps the output portable and usable offline.
 
 ## Collecting tasks
@@ -221,7 +227,7 @@ may sit inside `DIR`; discovery excludes it so a rebuild never ingests its own o
 | `tempfile` | staging directory |
 
 No `build.rs`, no vendored JavaScript, and no network access by ohimark at build or run
-time. Bundled CSS and JS are embedded source files; an author's custom CSS
+time. Base CSS, JS, and built-in presets are embedded source files; an author's custom CSS
 may reference external resources, which ohimark does not inspect or fetch.
 
 Dropped with the mdBook-era design: the `mdbook`, `mdbook-mermaid`, `static-web-server`
@@ -233,7 +239,7 @@ HTML; and `command-group` with `signal-hook`, which supervised the child process
 
 - **Plan before render** — link resolution needs every target up front, so the page set cannot be discovered lazily. (R6)
 - **Resolve during render, not after** — the parser already yields links as events; a second parse of generated HTML would buy nothing and cost a dependency. (R6)
-- **Only referenced Markdown assets are copied** — the render pass discovers those references; selected custom CSS is an explicit input copied by `emit`, independent of discovery. (R5)
+- **Only referenced Markdown assets are copied** — the render pass discovers those references; selected preset and custom CSS are explicit inputs copied by `emit`, independent of discovery. (R5)
 - **Stage then move** — the only way a failed build can leave `--out` untouched. (R10.2)
 - **One SVG per diagram** — a second themed render would double the build's most expensive step to save a colour-rewriting pass over its output. (R8.2)
 - **Parallel where it is pure, ordered where it is observable** — the expensive phases are independent per page, and every order-sensitive step is deferred until after them, so builds stay easy to diff. (R1.6)

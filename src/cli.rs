@@ -5,8 +5,17 @@ use clap::{ArgAction, Parser};
 
 use crate::model::{Error, Result};
 
+/// A built-in stylesheet layered over the site's minimal base styles.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum PresetTheme {
+    /// A white-and-charcoal palette with blue accents.
+    Default,
+    /// Warm paper, serif typography, and red accents.
+    Bookish,
+}
+
 /// The raw command-line surface:
-/// `ohimark --out OUTDIR [--root FILENAME] [--stylesheet FILE] [--exclude GLOB]... [--todo] DIR` (R9.1).
+/// `ohimark --out OUTDIR [--root FILENAME] [--theme default|bookish] [--stylesheet FILE] [--exclude GLOB]... [--todo] DIR` (R9.1).
 ///
 /// Fields accept arbitrary OS strings (not `Utf8PathBuf`) so that a non-UTF-8
 /// argument surfaces as a clear `Error::Config` from [`Args::into_config`]
@@ -46,12 +55,21 @@ pub struct Args {
     )]
     pub root: std::path::PathBuf,
 
+    /// An optional built-in theme, loaded after the minimal base styles.
+    #[arg(
+        long = "theme",
+        value_name = "THEME",
+        value_enum,
+        help = "Built-in theme to load after the base styles (none selected by default)"
+    )]
+    pub theme: Option<PresetTheme>,
+
     /// An optional stylesheet, relative to the working directory or absolute.
-    /// Loaded after the bundled stylesheet so its rules can override it.
+    /// Loaded after the base and selected theme so its rules can override them.
     #[arg(
         long = "stylesheet",
         value_name = "FILE",
-        help = "Custom stylesheet to load after the bundled styles (relative to the working directory or absolute)"
+        help = "Custom stylesheet to load after the base and any selected theme (relative to the working directory or absolute)"
     )]
     pub stylesheet: Option<std::path::PathBuf>,
 
@@ -84,6 +102,8 @@ pub struct Config {
     pub out: Utf8PathBuf,
     /// The `--root` file as a `DIR`-relative path. Defaults to `README.md`.
     pub root: Utf8PathBuf,
+    /// The optional `--theme` preset; `None` selects no built-in preset.
+    pub theme: Option<PresetTheme>,
     /// The optional `--stylesheet` file, canonicalised to an absolute path.
     pub stylesheet: Option<Utf8PathBuf>,
     /// Repeatable `--exclude` globs, in the order given.
@@ -114,6 +134,7 @@ impl Args {
             dir,
             out,
             root,
+            theme: self.theme,
             stylesheet,
             excludes: self.excludes,
             out_inside_dir,
@@ -277,6 +298,7 @@ mod tests {
     fn stylesheet_is_optional_and_last_value_wins_in_either_position() {
         let default = Args::try_parse_from(["ohimark", "dir", "--out", "site"]).unwrap();
         assert_eq!(default.stylesheet, None);
+        assert_eq!(default.theme, None);
         for arguments in [
             vec![
                 "ohimark",
@@ -311,6 +333,37 @@ mod tests {
     }
 
     #[test]
+    fn preset_theme_accepts_known_values_and_last_value_with_custom_stylesheet() {
+        for (name, preset) in [
+            ("default", PresetTheme::Default),
+            ("bookish", PresetTheme::Bookish),
+        ] {
+            let args =
+                Args::try_parse_from(["ohimark", "--theme", name, "dir", "--out", "site"]).unwrap();
+            assert_eq!(args.theme, Some(preset));
+        }
+        let args = Args::try_parse_from([
+            "ohimark",
+            "--theme",
+            "default",
+            "dir",
+            "--out",
+            "site",
+            "--theme",
+            "bookish",
+            "--stylesheet",
+            "overrides.css",
+        ])
+        .unwrap();
+        assert_eq!(args.theme, Some(PresetTheme::Bookish));
+        assert_eq!(args.stylesheet, Some("overrides.css".into()));
+        assert!(
+            Args::try_parse_from(["ohimark", "dir", "--out", "site", "--theme", "unknown",])
+                .is_err()
+        );
+    }
+
+    #[test]
     fn stylesheet_relative_to_cwd_is_canonicalized_without_changing_cwd() {
         let cwd = std::env::current_dir().unwrap();
         let fixture = tempfile::tempdir_in(&cwd).unwrap();
@@ -336,11 +389,13 @@ mod tests {
             dir,
             out: fixture.path().join("site"),
             root: "README.md".into(),
+            theme: Some(PresetTheme::Bookish),
             stylesheet: Some(stylesheet.clone()),
             excludes: vec!["**".into()],
             todo: false,
         };
         let config = args.into_config().unwrap();
+        assert_eq!(config.theme, Some(PresetTheme::Bookish));
         let validated = config.stylesheet.unwrap();
         assert_eq!(
             validated.as_std_path(),

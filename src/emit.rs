@@ -6,7 +6,7 @@ use std::collections::BTreeSet;
 
 use camino::{Utf8Path, Utf8PathBuf};
 
-use crate::cli::Config;
+use crate::cli::{Config, PresetTheme};
 use crate::links;
 use crate::model::{Error, Result, Site, SourceRel, Warnings};
 use crate::render::Rendered;
@@ -47,8 +47,17 @@ pub fn emit(config: &Config, site: &Site, rendered: &[Rendered]) -> Result<Warni
     let staging_root = Utf8Path::from_path(staging.path())
         .ok_or_else(|| Error::Emit("temporary staging path is not UTF-8".to_string()))?;
 
-    write_pages(site, rendered, staging_root, stylesheet_bytes.is_some())?;
+    write_pages(
+        site,
+        rendered,
+        staging_root,
+        config.theme.is_some(),
+        stylesheet_bytes.is_some(),
+    )?;
     write_theme_assets(staging_root)?;
+    if let Some(preset) = config.theme {
+        write_preset_stylesheet(staging_root, preset)?;
+    }
     if let (Some(stylesheet), Some(bytes)) = (&config.stylesheet, &stylesheet_bytes) {
         write_custom_stylesheet(staging_root, stylesheet, bytes)?;
     }
@@ -64,6 +73,7 @@ fn write_pages(
     site: &Site,
     rendered: &[Rendered],
     staging_root: &Utf8Path,
+    include_theme: bool,
     include_stylesheet: bool,
 ) -> Result<()> {
     for (page, page_rendered) in site.pages.iter().zip(rendered.iter()) {
@@ -72,6 +82,7 @@ fn write_pages(
             site,
             &page_rendered.html,
             &page_rendered.outline,
+            include_theme,
             include_stylesheet,
         );
         let dest = staging_root.join(page.target.as_path());
@@ -93,6 +104,27 @@ fn write_theme_assets(staging_root: &Utf8Path) -> Result<()> {
     Ok(())
 }
 
+fn preset_stylesheet(preset: PresetTheme) -> (&'static str, &'static str) {
+    match preset {
+        PresetTheme::Default => ("default", theme::DEFAULT_THEME_CSS),
+        PresetTheme::Bookish => ("bookish", theme::BOOKISH_THEME_CSS),
+    }
+}
+
+fn write_preset_stylesheet(staging_root: &Utf8Path, preset: PresetTheme) -> Result<()> {
+    let (name, stylesheet) = preset_stylesheet(preset);
+    write_file_io(
+        &staging_root.join(theme::THEME_STYLE_PATH),
+        stylesheet.as_bytes(),
+    )
+    .map_err(|source| {
+        Error::Emit(format!(
+            "--theme `{name}` could not be written to `{}`: {source}",
+            theme::THEME_STYLE_PATH
+        ))
+    })
+}
+
 fn write_custom_stylesheet(
     staging_root: &Utf8Path,
     stylesheet: &Utf8Path,
@@ -106,10 +138,19 @@ fn write_custom_stylesheet(
     })
 }
 
-/// Reserve the custom stylesheet only when it has been explicitly selected.
+/// Reserve optional stylesheets only when each has been explicitly selected.
 /// Files cannot occupy their parent directories or descendants either. Check
 /// only outputs actually used by this build, before any staged files are written.
 fn validate_stylesheet_targets(config: &Config, site: &Site, rendered: &[Rendered]) -> Result<()> {
+    if let Some(preset) = config.theme {
+        let (name, _) = preset_stylesheet(preset);
+        validate_reserved_style_targets(
+            site,
+            rendered,
+            Utf8Path::new(theme::THEME_STYLE_PATH),
+            &format!("--theme `{name}`"),
+        )?;
+    }
     if let Some(stylesheet) = &config.stylesheet {
         validate_reserved_style_targets(
             site,
@@ -275,6 +316,7 @@ mod tests {
             dir: "/input".into(),
             out: "/output".into(),
             root: "README.md".into(),
+            theme: None,
             stylesheet: Some("/theme.css".into()),
             excludes: Vec::new(),
             out_inside_dir: None,
@@ -339,8 +381,43 @@ mod tests {
     }
 
     #[test]
+    fn preset_reservation_rejects_casefolded_asset_prefixes_and_page_conflicts() {
+        let mut config = config();
+        config.stylesheet = None;
+        config.theme = Some(PresetTheme::Bookish);
+        let root = site("index.html");
+        for asset in [
+            "assets/theme.css",
+            "ASSETS/THEME.CSS",
+            "assets",
+            "ASSETS",
+            "Assets/Theme.Css/image.png",
+        ] {
+            let error = validate_stylesheet_targets(&config, &root, &[rendered(&[asset])])
+                .unwrap_err()
+                .to_string();
+            assert!(error.starts_with("output:"), "{error}");
+            assert!(error.contains("--theme `bookish`"), "{error}");
+            assert!(error.contains("assets/theme.css"), "{error}");
+            assert!(error.contains(asset), "{error}");
+        }
+        let error = validate_stylesheet_targets(
+            &config,
+            &site("ASSETS/THEME.CSS/guide.html"),
+            &[rendered(&[])],
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(
+            error.contains("page output `ASSETS/THEME.CSS/guide.html`"),
+            "{error}"
+        );
+        assert!(error.contains("--theme `bookish`"), "{error}");
+    }
+
+    #[test]
     fn stylesheet_reservation_uses_component_boundaries_and_only_emitted_assets() {
-        let config = config();
+        let mut config = config();
         let mut site = site("assets/custom.css-extra/guide.html");
         let source = SourceRel::new("assets/custom.css");
         site.by_source
@@ -351,6 +428,35 @@ mod tests {
             "assets/theme.css",
         ]);
         assert!(validate_stylesheet_targets(&config, &site, &[page_rendered]).is_ok());
+
+        config.stylesheet = None;
+        config.theme = Some(PresetTheme::Default);
+        let source = SourceRel::new("assets/theme.css");
+        site.by_source
+            .insert(source.folded(), SourceKind::Asset(source));
+        assert!(
+            validate_stylesheet_targets(
+                &config,
+                &site,
+                &[rendered(&[
+                    "assets/custom.css",
+                    "assets/theme.css.backup",
+                    "assets-extra/theme.css",
+                ])]
+            )
+            .is_ok()
+        );
+        config.stylesheet = Some("/theme.css".into());
+        for (asset, option) in [
+            ("assets/custom.css", "--stylesheet"),
+            ("assets/theme.css", "--theme"),
+        ] {
+            let error = validate_stylesheet_targets(&config, &site, &[rendered(&[asset])])
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains(option), "{error}");
+            assert!(error.contains(asset), "{error}");
+        }
     }
 
     #[test]
@@ -358,10 +464,16 @@ mod tests {
         let fixture = tempfile::tempdir().unwrap();
         let fixture = Utf8Path::from_path(fixture.path()).unwrap();
         let missing = fixture.join("removed.css");
-        for existing_out in [false, true] {
+        for (existing_out, preset) in [
+            (false, None),
+            (true, None),
+            (false, Some(PresetTheme::Default)),
+            (true, Some(PresetTheme::Default)),
+        ] {
             let mut config = config();
+            config.theme = preset;
             config.stylesheet = Some(missing.clone());
-            config.out = fixture.join(format!("site-{existing_out}"));
+            config.out = fixture.join(format!("site-{existing_out}-{}", preset.is_some()));
             if existing_out {
                 std::fs::create_dir(&config.out).unwrap();
             }

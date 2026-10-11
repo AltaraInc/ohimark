@@ -12,7 +12,7 @@ pub mod render;
 pub mod theme;
 pub mod todo;
 
-pub use cli::{Args, Config};
+pub use cli::{Args, Config, PresetTheme};
 pub use model::{Error, Result, Warnings};
 
 use rayon::prelude::*;
