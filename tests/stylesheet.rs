@@ -65,7 +65,7 @@ fn source_dir(base: &TempDir) -> PathBuf {
     dir
 }
 
-/// R8.11: without the option, pages link only the bundled base stylesheet.
+/// R8.11: without the option, pages link only the bundled minimal base stylesheet.
 #[test]
 fn r8_11_without_stylesheet_has_only_base_assets() {
     let base = TempDir::new().expect("create base");

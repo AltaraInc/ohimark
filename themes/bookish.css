@@ -1,0 +1,854 @@
+/*
+ * Bookish: warm paper, serif headings and red accents, adapted
+ * from ~/Documents/aku/misc/basic_math.html for ohimark's generated markup.
+ *
+ * Usage: ohimark --out site --stylesheet themes/bookish.css docs
+ */
+
+/* Shared presentation extracted from the original ohimark stylesheet. */
+:root {
+  --ohm-topbar-h: 56px;
+  --ohm-sidebar-w: 272px;
+  --ohm-outline-w: 220px;
+  --ohm-rail-w: 56px;
+  --ohm-gutter: 1.5rem;
+  --ohm-wide-gutter: clamp(2rem, 5vw, 8rem);
+  --ohm-content-max: 56rem;
+  --ohm-icon-size: 1.25rem;
+  --ohm-icon-stroke-width: 1.75;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-width: 0;
+  overflow-x: hidden;
+  background: var(--ohm-bg);
+  color: var(--ohm-fg);
+  font-family: var(--ohm-font-sans);
+  font-size: 16px;
+  line-height: 1.65;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+a {
+  color: var(--ohm-link);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--ohm-link-hover);
+  text-decoration: underline;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ohm-accent);
+  outline-offset: 2px;
+}
+
+.ohm-icon-button,
+.ohm-panel-button {
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ohm-fg);
+}
+
+.ohm-icon-button:hover,
+.ohm-panel-button:hover {
+  background: var(--ohm-code-bg);
+}
+
+.ohm-copy-button,
+.ohm-diagram-actions .ohm-icon-button {
+  background: var(--ohm-bg);
+  border: 1px solid var(--ohm-border);
+}
+
+.ohm-copy-button:hover,
+.ohm-diagram-actions .ohm-icon-button:hover {
+  border-color: var(--ohm-muted);
+}
+
+.ohm-topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-left: auto;
+  padding: 0 var(--ohm-gutter);
+}
+
+.ohm-sidebar {
+  padding: 1.5rem var(--ohm-gutter);
+  background: var(--ohm-sidebar-bg);
+  border-right: 1px solid var(--ohm-border);
+}
+
+.ohm-sidebar-header {
+  justify-content: flex-end;
+}
+
+.ohm-sidebar-header .ohm-nav-link {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ohm-main {
+  padding: 2.5rem var(--ohm-gutter) 4rem;
+}
+
+.ohm-content {
+  max-width: var(--ohm-content-max);
+}
+
+.ohm-outline {
+  padding: 1.5rem var(--ohm-gutter);
+  background: var(--ohm-outline-bg);
+}
+
+.ohm-outline-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ohm-muted);
+}
+
+.ohm-nav-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ohm-nav-list .ohm-nav-list {
+  margin: 0.25rem 0 0 0.6rem;
+  padding-left: 0.55rem;
+  border-left: 1px solid var(--ohm-border);
+}
+
+.ohm-nav-item {
+  margin: 0;
+}
+
+.ohm-nav-link {
+  display: block;
+  padding: 0.3rem 0.5rem;
+  border-radius: 6px;
+  color: var(--ohm-fg);
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.ohm-nav-link:hover {
+  background: var(--ohm-code-bg);
+  color: var(--ohm-fg);
+  text-decoration: none;
+}
+
+.ohm-nav-link--current {
+  color: var(--ohm-accent);
+  font-weight: 600;
+  background: var(--ohm-code-bg);
+}
+
+.ohm-nav-group {
+  margin-top: 0.75rem;
+}
+
+.ohm-nav-label {
+  display: block;
+  padding: 0.3rem 0.5rem;
+  color: var(--ohm-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+a.ohm-nav-label {
+  border-radius: 6px;
+}
+
+a.ohm-nav-label:hover {
+  background: transparent;
+  color: var(--ohm-muted);
+  text-decoration: none;
+}
+
+.ohm-nav-summary {
+  display: flex;
+  align-items: center;
+  border-radius: 6px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.ohm-nav-summary::-webkit-details-marker {
+  display: none;
+}
+
+.ohm-nav-summary::before {
+  content: "";
+  width: 0.4rem;
+  height: 0.4rem;
+  flex: none;
+  margin: 0 0.35rem 0 0.4rem;
+  border-right: 1.5px solid var(--ohm-muted);
+  border-bottom: 1.5px solid var(--ohm-muted);
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+}
+
+.ohm-nav-details[open] > .ohm-nav-summary::before {
+  transform: rotate(45deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ohm-nav-summary::before {
+    transition: none;
+  }
+}
+
+.ohm-nav-summary > .ohm-nav-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.ohm-nav-summary:hover {
+  background: var(--ohm-code-bg);
+}
+
+.ohm-nav-summary:focus-visible {
+  outline: 2px solid var(--ohm-accent);
+  outline-offset: 1px;
+}
+
+.ohm-outline-title {
+  margin: 0 0 0.5rem;
+}
+
+.ohm-outline-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-left: 1px solid var(--ohm-border);
+}
+
+.ohm-outline-item a {
+  display: block;
+  padding: 0.2rem 0 0.2rem 0.75rem;
+  margin-left: -1px;
+  border-left: 1px solid transparent;
+  color: var(--ohm-muted);
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.ohm-outline-item a:hover {
+  color: var(--ohm-fg);
+  text-decoration: none;
+}
+
+.ohm-outline-item--active > a {
+  border-left-color: var(--ohm-accent);
+  color: var(--ohm-accent);
+  font-weight: 600;
+}
+
+.ohm-outline-item--h3 a { padding-left: 1.5rem; }
+.ohm-outline-item--h4 a { padding-left: 2.25rem; }
+.ohm-outline-item--h5 a { padding-left: 3rem; }
+.ohm-outline-item--h6 a { padding-left: 3.75rem; }
+
+.ohm-content h1,
+.ohm-content h2,
+.ohm-content h3,
+.ohm-content h4,
+.ohm-content h5,
+.ohm-content h6 {
+  font-weight: 650;
+  line-height: 1.3;
+  scroll-margin-top: calc(var(--ohm-topbar-h) + 16px);
+}
+
+.ohm-content h1 {
+  margin: 0 0 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--ohm-border);
+  font-size: 2rem;
+}
+
+.ohm-content h2 {
+  margin: 2.5rem 0 1rem;
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid var(--ohm-border);
+  font-size: 1.5rem;
+}
+
+.ohm-content h3 { margin: 2rem 0 0.75rem; font-size: 1.25rem; }
+.ohm-content h4 { margin: 1.5rem 0 0.5rem; font-size: 1.05rem; }
+
+.ohm-content h5,
+.ohm-content h6 {
+  margin: 1.25rem 0 0.5rem;
+  color: var(--ohm-muted);
+  font-size: 0.95rem;
+}
+
+.ohm-content p { margin: 0 0 1rem; }
+
+.ohm-content ul,
+.ohm-content ol {
+  margin: 0 0 1rem;
+  padding-left: 1.5rem;
+}
+
+.ohm-content li + li { margin-top: 0.25rem; }
+
+.ohm-content li > ul,
+.ohm-content li > ol {
+  margin: 0.25rem 0 0;
+}
+
+.ohm-content li.ohm-task { list-style: none; }
+
+.ohm-content li.ohm-task input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  margin: 0 0.4rem 0 -1.4rem;
+  vertical-align: -0.1em;
+  accent-color: var(--ohm-accent);
+}
+
+.ohm-content blockquote {
+  margin: 0 0 1rem;
+  padding: 0.5rem 1rem;
+  border-left: 3px solid var(--ohm-blockquote-border);
+  color: var(--ohm-muted);
+}
+
+.ohm-content blockquote > :last-child { margin-bottom: 0; }
+
+.ohm-content hr {
+  margin: 2rem 0;
+  border: 0;
+  border-top: 1px solid var(--ohm-border);
+}
+
+.ohm-content strong { font-weight: 700; }
+.ohm-content em { font-style: italic; }
+
+.ohm-content del {
+  color: var(--ohm-muted);
+  text-decoration: line-through;
+}
+
+.ohm-content img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 1rem 0;
+  border-radius: 6px;
+}
+
+.ohm-content table {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 0 0 1rem;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.ohm-content table > * { min-width: max-content; }
+
+.ohm-content th,
+.ohm-content td {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--ohm-table-border);
+  text-align: left;
+}
+
+.ohm-content th {
+  background: var(--ohm-table-stripe);
+  font-weight: 700;
+}
+
+.ohm-content tbody tr:nth-child(even) {
+  background: var(--ohm-table-stripe);
+}
+
+.ohm-content code {
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+  background: var(--ohm-code-bg);
+  color: var(--ohm-code-fg);
+  font-family: var(--ohm-font-mono);
+  font-size: 0.875em;
+}
+
+.ohm-content pre {
+  position: relative;
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 0 0 1rem;
+  padding: 1rem;
+  border-radius: 8px;
+  background: var(--ohm-code-bg);
+}
+
+.ohm-content pre code {
+  display: block;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  white-space: pre;
+}
+
+@media (max-width: 960px) {
+  .ohm-main {
+    padding: 2rem 1.25rem 3rem calc(var(--ohm-rail-w) + 1.25rem);
+  }
+}
+
+/* Existing Bookish palette and refinements follow. */
+
+:root {
+  --ohm-topbar-h: 0px;
+  --ohm-font-sans:
+    Inter, "SF Pro Display", -apple-system, BlinkMacSystemFont,
+    "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --ohm-font-mono:
+    "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+
+  --basic-serif:
+    "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino,
+    Georgia, serif;
+
+  /* Source palette: warm paper and brick red. */
+  --basic-light-bg: #faf6f0;
+  --basic-light-surface: #ffffff;
+  --basic-light-surface-alt: #f1ebe1;
+  --basic-light-surface-raised: #e8e0d6;
+  --basic-light-fg: #1e1d1b;
+  --basic-light-muted: #6b6560;
+  --basic-light-faint: #8a857f;
+  --basic-light-border: #e6ddd0;
+  --basic-light-border-strong: #d5c9b7;
+  --basic-light-accent: #c1272d;
+  --basic-light-accent-hover: #9a1d23;
+  --basic-light-accent-tint: #fbecec;
+  --basic-light-selection: #f5d6d6;
+  --basic-light-accent-fg: #ffffff;
+  --basic-light-shadow: rgba(30, 29, 27, 0.1);
+  --basic-light-backdrop: rgba(30, 29, 27, 0.35);
+  --basic-light-error: #9a1d23;
+  --basic-light-warning: #b8720b;
+  --basic-light-success: #267047;
+
+  --basic-dark-bg: #161412;
+  --basic-dark-surface: #1e1c1a;
+  --basic-dark-surface-alt: #282420;
+  --basic-dark-surface-raised: #332f2b;
+  --basic-dark-fg: #f0ebe3;
+  --basic-dark-muted: #b0a99f;
+  --basic-dark-faint: #9a958f;
+  --basic-dark-border: #2e2a26;
+  --basic-dark-border-strong: #3e3833;
+  --basic-dark-accent: #e84a4a;
+  --basic-dark-accent-hover: #ff6b6b;
+  --basic-dark-accent-tint: #2a1c1c;
+  --basic-dark-selection: #3a2323;
+  --basic-dark-accent-fg: #161412;
+  --basic-dark-shadow: rgba(0, 0, 0, 0.4);
+  --basic-dark-backdrop: rgba(0, 0, 0, 0.55);
+  --basic-dark-error: #ff6b6b;
+  --basic-dark-warning: #ffb84d;
+  --basic-dark-success: #63e6be;
+
+  /* The active palette starts in light mode and switches with the OS or
+     ohimark's explicit theme control. */
+  --basic-color-scheme: light;
+  --basic-bg: var(--basic-light-bg);
+  --basic-surface: var(--basic-light-surface);
+  --basic-surface-alt: var(--basic-light-surface-alt);
+  --basic-surface-raised: var(--basic-light-surface-raised);
+  --basic-fg: var(--basic-light-fg);
+  --basic-muted: var(--basic-light-muted);
+  --basic-faint: var(--basic-light-faint);
+  --basic-border: var(--basic-light-border);
+  --basic-border-strong: var(--basic-light-border-strong);
+  --basic-accent: var(--basic-light-accent);
+  --basic-accent-hover: var(--basic-light-accent-hover);
+  --basic-accent-tint: var(--basic-light-accent-tint);
+  --basic-selection: var(--basic-light-selection);
+  --basic-accent-fg: var(--basic-light-accent-fg);
+  --basic-shadow: var(--basic-light-shadow);
+  --basic-backdrop: var(--basic-light-backdrop);
+  --basic-error: var(--basic-light-error);
+  --basic-warning: var(--basic-light-warning);
+  --basic-success: var(--basic-light-success);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --basic-color-scheme: dark;
+    --basic-bg: var(--basic-dark-bg);
+    --basic-surface: var(--basic-dark-surface);
+    --basic-surface-alt: var(--basic-dark-surface-alt);
+    --basic-surface-raised: var(--basic-dark-surface-raised);
+    --basic-fg: var(--basic-dark-fg);
+    --basic-muted: var(--basic-dark-muted);
+    --basic-faint: var(--basic-dark-faint);
+    --basic-border: var(--basic-dark-border);
+    --basic-border-strong: var(--basic-dark-border-strong);
+    --basic-accent: var(--basic-dark-accent);
+    --basic-accent-hover: var(--basic-dark-accent-hover);
+    --basic-accent-tint: var(--basic-dark-accent-tint);
+    --basic-selection: var(--basic-dark-selection);
+    --basic-accent-fg: var(--basic-dark-accent-fg);
+    --basic-shadow: var(--basic-dark-shadow);
+    --basic-backdrop: var(--basic-dark-backdrop);
+    --basic-error: var(--basic-dark-error);
+    --basic-warning: var(--basic-dark-warning);
+    --basic-success: var(--basic-dark-success);
+  }
+}
+
+:root[data-theme="dark"] {
+  --basic-color-scheme: dark;
+  --basic-bg: var(--basic-dark-bg);
+  --basic-surface: var(--basic-dark-surface);
+  --basic-surface-alt: var(--basic-dark-surface-alt);
+  --basic-surface-raised: var(--basic-dark-surface-raised);
+  --basic-fg: var(--basic-dark-fg);
+  --basic-muted: var(--basic-dark-muted);
+  --basic-faint: var(--basic-dark-faint);
+  --basic-border: var(--basic-dark-border);
+  --basic-border-strong: var(--basic-dark-border-strong);
+  --basic-accent: var(--basic-dark-accent);
+  --basic-accent-hover: var(--basic-dark-accent-hover);
+  --basic-accent-tint: var(--basic-dark-accent-tint);
+  --basic-selection: var(--basic-dark-selection);
+  --basic-accent-fg: var(--basic-dark-accent-fg);
+  --basic-shadow: var(--basic-dark-shadow);
+  --basic-backdrop: var(--basic-dark-backdrop);
+  --basic-error: var(--basic-dark-error);
+  --basic-warning: var(--basic-dark-warning);
+  --basic-success: var(--basic-dark-success);
+}
+
+/* Match all bundled theme selectors. The custom palette therefore remains
+   authoritative in OS light/dark mode and after an explicit user choice. */
+:root,
+:root:not([data-theme="light"]),
+:root[data-theme="light"],
+:root[data-theme="dark"] {
+  color-scheme: var(--basic-color-scheme);
+  --ohm-bg: var(--basic-bg);
+  --ohm-fg: var(--basic-fg);
+  --ohm-muted: var(--basic-muted);
+  --ohm-border: var(--basic-border);
+  --ohm-accent: var(--basic-accent);
+  --ohm-accent-fg: var(--basic-accent-fg);
+  --ohm-link: var(--basic-accent);
+  --ohm-link-hover: var(--basic-accent-hover);
+  --ohm-code-bg: var(--basic-surface-alt);
+  --ohm-code-fg: var(--basic-fg);
+  --ohm-topbar-bg: var(--basic-surface);
+  --ohm-sidebar-bg: var(--basic-bg);
+  --ohm-outline-bg: var(--basic-bg);
+  --ohm-blockquote-border: var(--basic-accent);
+  --ohm-table-border: var(--basic-border);
+  --ohm-table-stripe: var(--basic-surface-raised);
+  --ohm-shadow: var(--basic-shadow);
+  --ohm-backdrop: var(--basic-backdrop);
+  --ohm-dg-canvas: var(--ohm-bg);
+  --ohm-dg-surface: var(--ohm-code-bg);
+  --ohm-dg-surface-alt: color-mix(in srgb, var(--ohm-code-bg), var(--ohm-accent) 12%);
+  --ohm-dg-surface-muted: var(--ohm-table-stripe);
+  --ohm-dg-text: var(--ohm-fg);
+  --ohm-dg-subtle-text: var(--ohm-muted);
+  --ohm-dg-border: var(--ohm-border);
+  --ohm-dg-line: var(--ohm-muted);
+  --ohm-dg-edge-label-background: var(--ohm-bg);
+  --ohm-dg-cluster-background: color-mix(in srgb, var(--ohm-bg), var(--ohm-accent) 6%);
+  --ohm-dg-cluster-border: var(--ohm-border);
+  --ohm-dg-note-background: var(--ohm-code-bg);
+  --ohm-dg-note-border: var(--ohm-blockquote-border);
+  --ohm-dg-note-text: var(--ohm-fg);
+  --ohm-dg-actor-background: var(--ohm-code-bg);
+  --ohm-dg-actor-border: var(--ohm-border);
+  --ohm-dg-actor-text: var(--ohm-fg);
+  --ohm-dg-activation-background: color-mix(in srgb, var(--ohm-code-bg), var(--ohm-accent) 8%);
+  --ohm-dg-activation-border: var(--ohm-muted);
+  --ohm-dg-error: var(--basic-error);
+  --ohm-dg-warning: var(--basic-warning);
+  --ohm-dg-success: var(--basic-success);
+  --ohm-dg-series-0: var(--ohm-accent);
+  --ohm-dg-series-1: color-mix(in srgb, var(--ohm-accent) 30%, #e8590c 70%);
+  --ohm-dg-series-2: color-mix(in srgb, var(--ohm-accent) 30%, #2f9e44 70%);
+  --ohm-dg-series-3: color-mix(in srgb, var(--ohm-accent) 30%, #e03131 70%);
+  --ohm-dg-series-4: color-mix(in srgb, var(--ohm-accent) 30%, #ae3ec9 70%);
+  --ohm-dg-series-5: color-mix(in srgb, var(--ohm-accent) 30%, #f08c00 70%);
+  --ohm-dg-series-6: color-mix(in srgb, var(--ohm-accent) 30%, #1098ad 70%);
+  --ohm-dg-series-7: color-mix(in srgb, var(--ohm-accent) 30%, #d6336c 70%);
+  --ohm-dg-series-8: color-mix(in srgb, var(--ohm-accent) 30%, #5c940d 70%);
+  --ohm-dg-series-9: color-mix(in srgb, var(--ohm-accent) 30%, #495057 70%);
+  --ohm-dg-series-10: color-mix(in srgb, var(--ohm-accent) 30%, #862e9c 70%);
+  --ohm-dg-series-11: color-mix(in srgb, var(--ohm-accent) 30%, #0ca678 70%);
+}
+
+::selection {
+  background: var(--basic-selection);
+  color: var(--basic-fg);
+}
+
+.ohm-topbar {
+  position: fixed;
+  top: auto;
+  bottom: 0.75rem;
+  left: 0;
+  width: var(--ohm-rail-w);
+  height: 2.25rem;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+}
+
+.ohm-topbar-lead {
+  display: none;
+}
+
+.ohm-topbar-actions {
+  margin: 0;
+  padding: 0;
+}
+
+#ohm-theme-button {
+  color: var(--basic-muted);
+  background: var(--basic-bg);
+  border-color: transparent;
+}
+
+#ohm-theme-button:hover {
+  color: var(--basic-accent);
+  background: var(--basic-accent-tint);
+}
+
+#ohm-theme-button[hidden] {
+  display: none;
+}
+
+.ohm-sidebar {
+  padding-bottom: 4.5rem;
+}
+
+.ohm-sidebar-header > .ohm-nav-link {
+  font-weight: 700;
+}
+
+.ohm-content {
+  font-family: var(--basic-serif);
+}
+
+.ohm-content h1,
+.ohm-content h2,
+.ohm-content h3,
+.ohm-content h4,
+.ohm-content h5,
+.ohm-content h6 {
+  font-family: var(--basic-serif);
+  font-weight: 700;
+}
+
+.ohm-content h1 {
+  font-size: clamp(2.5rem, 5vw, 3.75rem);
+  line-height: 0.98;
+  letter-spacing: -0.03em;
+  padding: 0 0 0 0.9rem;
+  border-left: 3px solid var(--basic-accent);
+  border-bottom: 0;
+  overflow-wrap: anywhere;
+}
+
+.ohm-content h2 {
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  padding-bottom: 0.45rem;
+  border-bottom-color: var(--basic-border-strong);
+}
+
+.ohm-content h3 {
+  font-size: 1.4rem;
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+}
+
+.ohm-nav-link,
+.ohm-outline-item a {
+  font-family: var(--basic-serif);
+  font-size: 1rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.ohm-nav-label,
+.ohm-outline-title {
+  font-family: var(--ohm-font-sans);
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+}
+
+.ohm-nav-link,
+a.ohm-nav-label {
+  border-left: 2px solid transparent;
+}
+
+.ohm-nav-link--current {
+  color: var(--basic-accent-hover);
+  background: transparent;
+  border-left-color: var(--basic-accent);
+}
+
+.ohm-nav-link:hover {
+  color: var(--basic-accent-hover);
+  background: var(--basic-surface-alt);
+  text-decoration: none;
+}
+
+.ohm-outline-item a:hover {
+  color: var(--basic-accent-hover);
+  text-decoration: none;
+}
+
+.ohm-outline-item--active > a,
+.ohm-outline-item--active > a:hover {
+  color: var(--basic-accent-hover);
+  border-left-color: var(--basic-accent);
+}
+
+.ohm-panel-button {
+  color: var(--basic-muted);
+  border-color: transparent;
+}
+
+.ohm-panel-button:hover {
+  color: var(--basic-accent);
+  background: var(--basic-accent-tint);
+}
+
+a.ohm-nav-label:hover {
+  color: var(--basic-muted);
+  background: transparent;
+}
+
+.ohm-nav-link--current:hover,
+a.ohm-nav-label.ohm-nav-link--current,
+a.ohm-nav-label.ohm-nav-link--current:hover {
+  color: var(--basic-accent-hover);
+  border-left-color: var(--basic-accent);
+  background: transparent;
+}
+
+.ohm-nav-link,
+.ohm-nav-label,
+.ohm-nav-summary,
+.ohm-icon-button,
+.ohm-panel-button,
+.ohm-copy-button,
+.ohm-diagram-actions .ohm-icon-button {
+  border-radius: 0;
+}
+
+.ohm-icon-button {
+  border: 1px solid var(--ohm-border);
+}
+
+.ohm-content blockquote {
+  padding: 0.75rem 1rem;
+  border-left-color: var(--basic-accent);
+  background: var(--basic-surface);
+}
+
+.ohm-content th {
+  font-family: var(--ohm-font-sans);
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: var(--basic-surface-alt);
+}
+
+.ohm-content code,
+.ohm-content pre {
+  border-radius: 0;
+}
+
+.ohm-content pre {
+  border: 1px solid var(--ohm-border);
+}
+
+.ohm-content img {
+  border-radius: 0;
+}
+
+.ohm-diagram {
+  margin: 0 0 1.5rem;
+}
+
+.ohm-diagram-graphic {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+}
+
+.ohm-diagram-graphic svg .node rect.label-container,
+.ohm-diagram-graphic svg .cluster rect {
+  rx: 6px;
+  ry: 6px;
+}
+
+.ohm-diagram-actions {
+  position: static;
+  justify-content: flex-end;
+  margin-top: 0.5rem;
+}
+
+.ohm-diagram-actions .ohm-icon-button {
+  color: var(--basic-muted);
+  background: transparent;
+  border: 0;
+}
+
+.ohm-diagram-actions .ohm-icon-button:hover {
+  color: var(--basic-accent);
+  background: var(--basic-accent-tint);
+}
+
+.ohm-diagram:fullscreen .ohm-diagram-actions {
+  position: absolute;
+  margin: 0;
+}

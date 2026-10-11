@@ -1,15 +1,15 @@
 //! The page shell: wraps a rendered page body in the site's HTML document,
 //! sidebar navigation (R4) and per-page outline (R8.3). Also bundles the
-//! theme's CSS and JS, embedded at compile time so the built site needs no
-//! network access at runtime (R8.7).
+//! minimal base CSS and JS, embedded at compile time so the built site needs
+//! no network access at runtime (R8.7).
 
 use camino::Utf8Path;
 
 use crate::links;
 use crate::model::{NavNode, OutlineEntry, Page, Site, escape_html};
 
-/// The site stylesheet, embedded at compile time (R8.7: nothing is fetched
-/// at runtime).
+/// The site's minimal base stylesheet, embedded at compile time (R8.7:
+/// nothing is fetched at runtime).
 pub const STYLE_CSS: &str = include_str!("assets/ohimark.css");
 /// The site script, embedded at compile time.
 pub const APP_JS: &str = include_str!("assets/ohimark.js");

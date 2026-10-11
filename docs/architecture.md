@@ -24,7 +24,7 @@ flowchart TD
   PREFLIGHT --> STAGE
   STAGE["Stage in temp dir outside DIR"]
   STAGE -->|"rendered pages"| PAGES["Write pages"]
-  PAGES -->|"bundled CSS and JS"| TH["Write bundled assets"]
+  PAGES -->|"bundled CSS and JS"| TH["Write minimal base assets"]
   TH -->|"optional exact-byte copy"| CUSTOM["Copy custom.css"]
   CUSTOM -->|"referenced Markdown assets"| COPY["Copy assets"]
   COPY -->|"move, on success only"| OUT["--out"]
@@ -63,7 +63,7 @@ graph LR
 | `plan` | ignore-aware walk, `--exclude` overrides, source-to-target mapping, collision detection, root-file resolution, titles, nav tree | `plan()` |
 | `render` | Markdown event stream to HTML; anchors, outline, code fences, Mermaid | `render_page()`, `render_part()` |
 | `links` | relative reference resolution, plus the POSIX path helpers it needs | `resolve()`, `fold()`, `normpath()`, `relpath()` |
-| `theme` | page shell, sidebar, outline rail; bundled CSS and JS; optional custom stylesheet links | `shell()`, `STYLE_CSS`, `APP_JS` |
+| `theme` | page shell, sidebar, outline rail; minimal base CSS and JS; optional custom stylesheet links | `shell()`, `STYLE_CSS`, `APP_JS` |
 | `emit` | CSS collision preflight, temp staging, custom stylesheet copy, referenced asset copy, move into `--out` | `emit()` |
 | `todo` | `--todo`: lifts open task items out of every page and appends them to the root TODO page | `collect()`, `render_page()` |
 
@@ -101,6 +101,11 @@ an internal helper adds a relative custom stylesheet link after the bundled styl
 adjusted for the page's output depth.
 
 ## Custom stylesheet
+
+The bundled stylesheet is a minimal base that preserves the navigation, panel and
+diagram scaffold while leaving typography, color and element defaults to the browser.
+Optional presentation styles live in `themes/default.css` and `themes/bookish.css`;
+select either file with `--stylesheet`.
 
 `--stylesheet` selects one local CSS file from outside or inside `DIR`; it is independent
 of Markdown discovery and ignore rules. The supplied path and its canonical path must be
@@ -160,19 +165,21 @@ written to `DIR`: the appendix exists only in memory.
 
 `merman` parses, lays out and renders Mermaid entirely in Rust — no Node, Puppeteer or
 Chromium. Each diagram is rendered **once**. Its colour literals are then rewritten into
-CSS custom properties, so a single inline SVG is correct under both themes and the theme
-toggle needs no JavaScript; `max-width: 100%` with `height: auto` scales it to any
+CSS custom properties, so a single inline SVG is correct in both light and dark modes and
+the theme toggle needs no JavaScript; `max-width: 100%` with `height: auto` scales it to any
 viewport, also without JavaScript. A diagram that fails to render warns and falls back to
 an ordinary code block.
 
-Diagram text uses the site font stack through `--ohm-font-sans` at 14px, with node and
-rank spacing tightened from Mermaid's defaults. `merman` sizes each label with a heuristic
-that ignores the font family, so node padding is the only margin against a label
-overflowing its box. Gantt charts are the exception: `merman` only computes their layout
-(bar positions, axis ticks), and ohimark's own minimal renderer draws the SVG from it.
+Diagram text uses `--ohm-font-sans` at 14px, with node and rank spacing tightened from
+Mermaid's defaults. The base uses the browser's native serif font stack; an optional preset
+can override it. `merman` sizes each label with a heuristic that ignores the font family,
+so node padding is the only margin against a label overflowing its box. Gantt charts are
+the exception: `merman` only computes their layout (bar positions and axis ticks), while
+ohimark's own minimal renderer draws the SVG from it.
 Every section and task label sits in a left column, the chart area holds nothing but
 unoutlined bars, and a single axis with date ticks runs along the bottom. That SVG carries
-no colours of its own, only classes styled in the stylesheet's diagram section.
+no colours of its own, only classes styled by the bundled diagram rules to use the active
+palette.
 
 Diagram layout is the most expensive thing the build does, which is what makes the
 parallel render pass worth having.

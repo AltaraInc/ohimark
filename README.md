@@ -24,20 +24,28 @@ ohimark --out OUTDIR [--root FILENAME] [--exclude GLOB]... [--todo] [--styleshee
 - `--root` or `-r`: the site's home page, given as a path relative to `DIR`. Defaults to `README.md`. It is emitted as `index.html`.
 - `--exclude`: a glob of paths to skip, in addition to the ignore files. Repeatable.
 - `--todo`: collect every unchecked task list item (`- [ ]`) from all pages into the root-level TODO page, under a heading linking each file, in page order. If `DIR` has a top-level `TODO.md`, the tasks are appended to it under a `Collected Tasks` heading and its own tasks are not repeated; otherwise a `TODO.html` page is generated. When there are no open tasks to collect, nothing is added and no `TODO.html` is generated. This only affects the HTML output: nothing is written to `DIR`. Off by default.
-- `--stylesheet FILE`: add a stylesheet after the bundled stylesheet. The file must be an existing, readable regular file; its supplied and canonical paths must be UTF-8. Its contents are copied unchanged. It may be inside or outside `DIR`, including a file ignored or excluded from discovery. Relative paths are resolved from the current working directory; absolute paths are also accepted. If repeated, the last value is used.
+- `--stylesheet FILE`: add a stylesheet after the minimal bundled base. The file must be an existing, readable regular file; its supplied and canonical paths must be UTF-8. Its contents are copied unchanged. It may be inside or outside `DIR`, including a file ignored or excluded from discovery. Relative paths are resolved from the current working directory; absolute paths are also accepted. If repeated, the last value is used.
 
 ### Custom styles
 
-Pass `--stylesheet FILE` to add a local CSS file after the bundled styles:
+The bundled CSS is a minimal base. Without `--stylesheet`, pages use browser-native
+fonts, colors and element defaults; the base keeps navigation, panels and diagrams
+functional. Optional presentation styles are available in `themes/`:
+
+- `default.css` gives a modern, neutral system-ui look.
+- `bookish.css` gives a warm-paper, serif look with red accents.
+
+Select a preset file through the custom stylesheet option:
 
 ```sh
-ohimark --out site --stylesheet overrides.css docs
+ohimark --out site --stylesheet themes/default.css docs
+ohimark --out site --stylesheet themes/bookish.css docs
 ```
 
-Pages link the bundled stylesheet, followed by `assets/custom.css`, with paths
-relative to each page, including nested pages. A later rule wins when specificity
-is equal. Override the `--ohm-*` custom properties and match the site's light and
-dark theme selectors, as in this example:
+Pages link the minimal base, followed by `assets/custom.css`, with paths relative
+to each page, including nested pages. A later rule wins when specificity is equal.
+Override the `--ohm-*` custom properties and match the site's light and dark theme
+selectors. Custom CSS can style native elements explicitly, as in this example:
 
 ```css
 :root {

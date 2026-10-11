@@ -3,8 +3,8 @@
 //! `merman` works out the schedule - bar positions, axis ticks, excluded ranges - and this
 //! module redraws it in the site's own shape: every label in a left column, plain
 //! unoutlined bars, and one axis along the bottom. The SVG carries no colours, only
-//! classes that section 7 of `ohimark.css` styles, so a single render is correct under
-//! both themes.
+//! classes styled by the bundled diagram rules to use the active palette, so one render
+//! works with the base stylesheet and optional style overrides.
 
 use std::f64::consts::FRAC_1_SQRT_2;
 use std::fmt::Write as _;

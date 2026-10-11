@@ -1,68 +1,49 @@
 /*
- * ohimark.css — theme stylesheet for every ohimark-built site.
+ * ohimark.css — minimal functional base for every ohimark-built site.
  *
- * Implements: R7.3 (code blocks), R7.4/R8.2/R8.6/R8.9 (diagrams and their
- * colour tokens), R8.1 (theme toggle), R8.3 (per-page outline), R8.4/R8.5
- * (responsive sidebar navigation), R8.7/R11.1/R11.2 (no network access, only
- * relative/local resources, works over file:// and any static server),
- * R8.10 (copy-to-clipboard controls on code blocks and diagrams).
- *
- * This file is embedded into the ohimark binary with include_str!() and
- * copied verbatim into every built site as assets/ohimark.css. It must not
- * reference any network resource: no @import url(), no web fonts, no CDN.
+ * Embedded into the binary and emitted as assets/ohimark.css. Browser fonts,
+ * system colours, native controls and default content styles remain intact.
+ * Optional stylesheets in themes/ provide presentation. This file contains
+ * only shared tokens, responsive navigation, overflow handling and controls.
+ * No network resources, imports or web fonts are required.
  */
 
-/* =========================================================================
-   1. Design tokens — light theme (default, complete palette)
-   ========================================================================= */
-
 :root {
-  /* Native controls (the task-list checkbox) follow the active theme. */
-  color-scheme: light;
+  color-scheme: light dark;
+  --ohm-font-sans: serif;
+  --ohm-font-mono: monospace;
 
-  /* -- Typography -- */
-  --ohm-font-sans:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
-    sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
-  --ohm-font-mono:
-    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
-    "Liberation Mono", monospace;
-
-  /* -- Layout: shared widths that keep the top bar, sidebar, content and
-     outline aligned with one another. -- */
-  --ohm-topbar-h: 56px;
+  --ohm-topbar-h: 40px;
   --ohm-sidebar-w: 272px;
   --ohm-outline-w: 220px;
   --ohm-rail-w: 56px;
-  --ohm-gutter: 1.5rem;
-  --ohm-wide-gutter: clamp(2rem, 5vw, 8rem);
-  --ohm-content-max: 56rem;
+  --ohm-gutter: 1rem;
+  --ohm-wide-gutter: 1rem;
+  --ohm-content-max: none;
   --ohm-icon-size: 1.25rem;
   --ohm-icon-stroke-width: 1.75;
 
-  /* -- Site chrome -- */
-  --ohm-bg: #ffffff;
-  --ohm-fg: #1e2126;
-  --ohm-muted: #5f6773;
-  --ohm-border: #e3e5e8;
-  --ohm-accent: #3b57d9;
-  --ohm-accent-fg: #ffffff;
-  --ohm-link: #3b57d9;
-  --ohm-link-hover: #2c41a8;
-  --ohm-code-bg: #f4f5f7;
-  --ohm-code-fg: #1e2126;
-  --ohm-topbar-bg: #ffffff;
-  --ohm-sidebar-bg: #fafafb;
-  --ohm-outline-bg: transparent;
-  --ohm-blockquote-border: #dfe2e6;
-  --ohm-table-border: #e3e5e8;
-  --ohm-table-stripe: #f7f8f9;
-  --ohm-shadow: rgba(15, 17, 21, 0.08);
-  --ohm-backdrop: rgba(15, 17, 21, 0.35);
+  --ohm-bg: Canvas;
+  --ohm-fg: CanvasText;
+  --ohm-muted: GrayText;
+  --ohm-border: ButtonBorder;
+  --ohm-accent: Highlight;
+  --ohm-accent-fg: Canvas;
+  --ohm-link: LinkText;
+  --ohm-link-hover: VisitedText;
+  --ohm-code-bg: Canvas;
+  --ohm-code-fg: CanvasText;
+  --ohm-topbar-bg: Canvas;
+  --ohm-sidebar-bg: Canvas;
+  --ohm-outline-bg: Canvas;
+  --ohm-blockquote-border: ButtonBorder;
+  --ohm-table-border: ButtonBorder;
+  --ohm-table-stripe: Canvas;
+  --ohm-shadow: transparent;
+  --ohm-backdrop: color-mix(in srgb, CanvasText 35%, transparent);
 
-  /* -- Diagram tokens (R8.2), derived from the chrome tokens so the two
-     palettes can't drift; `error`/`warning`/`success` have no chrome
-     equivalent and are picked by hand. -- */
+  /* Diagram roles stay connected to site tokens for optional themes. The
+     canvas must be opaque: generated state markers and icons use it too. */
   --ohm-dg-canvas: var(--ohm-bg);
   --ohm-dg-surface: var(--ohm-code-bg);
   --ohm-dg-surface-alt: color-mix(in srgb, var(--ohm-code-bg), var(--ohm-accent) 12%);
@@ -82,174 +63,38 @@
   --ohm-dg-actor-text: var(--ohm-fg);
   --ohm-dg-activation-background: color-mix(in srgb, var(--ohm-code-bg), var(--ohm-accent) 8%);
   --ohm-dg-activation-border: var(--ohm-muted);
-  --ohm-dg-error: #d64545;
-  --ohm-dg-warning: #b8720b;
-  --ohm-dg-success: #2f9e44;
+  --ohm-dg-error: var(--ohm-link);
+  --ohm-dg-warning: color-mix(in srgb, var(--ohm-link), var(--ohm-fg));
+  --ohm-dg-success: var(--ohm-muted);
 
-  /* -- Diagram series (pie/gantt/class), mixed from the site accent. -- */
-  --ohm-dg-series-0: var(--ohm-accent);
-  --ohm-dg-series-1: color-mix(in srgb, var(--ohm-accent) 30%, #e8590c 70%);
-  --ohm-dg-series-2: color-mix(in srgb, var(--ohm-accent) 30%, #2f9e44 70%);
-  --ohm-dg-series-3: color-mix(in srgb, var(--ohm-accent) 30%, #e03131 70%);
-  --ohm-dg-series-4: color-mix(in srgb, var(--ohm-accent) 30%, #ae3ec9 70%);
-  --ohm-dg-series-5: color-mix(in srgb, var(--ohm-accent) 30%, #f08c00 70%);
-  --ohm-dg-series-6: color-mix(in srgb, var(--ohm-accent) 30%, #1098ad 70%);
-  --ohm-dg-series-7: color-mix(in srgb, var(--ohm-accent) 30%, #d6336c 70%);
-  --ohm-dg-series-8: color-mix(in srgb, var(--ohm-accent) 30%, #5c940d 70%);
-  --ohm-dg-series-9: color-mix(in srgb, var(--ohm-accent) 30%, #495057 70%);
-  --ohm-dg-series-10: color-mix(in srgb, var(--ohm-accent) 30%, #862e9c 70%);
-  --ohm-dg-series-11: color-mix(in srgb, var(--ohm-accent) 30%, #0ca678 70%);
+  /* Distinct native colours and mixes; presentation themes can replace them. */
+  --ohm-dg-series-0: Highlight;
+  --ohm-dg-series-1: LinkText;
+  --ohm-dg-series-2: VisitedText;
+  --ohm-dg-series-3: ButtonText;
+  --ohm-dg-series-4: GrayText;
+  --ohm-dg-series-5: ButtonFace;
+  --ohm-dg-series-6: color-mix(in srgb, Highlight 75%, Canvas 25%);
+  --ohm-dg-series-7: color-mix(in srgb, LinkText 75%, Canvas 25%);
+  --ohm-dg-series-8: color-mix(in srgb, VisitedText 75%, Canvas 25%);
+  --ohm-dg-series-9: color-mix(in srgb, Highlight 50%, ButtonText 50%);
+  --ohm-dg-series-10: color-mix(in srgb, LinkText 50%, GrayText 50%);
+  --ohm-dg-series-11: color-mix(in srgb, VisitedText 50%, GrayText 50%);
 }
 
-/* =========================================================================
-   2. Design tokens — dark theme
-   Applied via the OS preference (when no explicit choice was made) and via
-   the explicit [data-theme] attribute set by the theme toggle. Every value
-   below is repeated verbatim in both blocks so the toggle wins in either
-   direction, and no colour has its only definition inside a conditional.
-   ========================================================================= */
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    color-scheme: dark;
-    --ohm-bg: #0f1115;
-    --ohm-fg: #e6e6e6;
-    --ohm-muted: #9aa0a6;
-    --ohm-border: #2a2d33;
-    --ohm-accent: #7aa2f7;
-    --ohm-accent-fg: #0f1115;
-    --ohm-link: #7aa2f7;
-    --ohm-link-hover: #a9c1fb;
-    --ohm-code-bg: #161922;
-    --ohm-code-fg: #e6e6e6;
-    --ohm-topbar-bg: #12141a;
-    --ohm-sidebar-bg: #12141a;
-    --ohm-outline-bg: transparent;
-    --ohm-blockquote-border: #33363e;
-    --ohm-table-border: #2a2d33;
-    --ohm-table-stripe: #171a21;
-    --ohm-shadow: rgba(0, 0, 0, 0.4);
-    --ohm-backdrop: rgba(0, 0, 0, 0.55);
-
-    --ohm-dg-canvas: var(--ohm-bg);
-    --ohm-dg-surface: var(--ohm-code-bg);
-    --ohm-dg-surface-alt: color-mix(in srgb, var(--ohm-code-bg), var(--ohm-accent) 12%);
-    --ohm-dg-surface-muted: var(--ohm-table-stripe);
-    --ohm-dg-text: var(--ohm-fg);
-    --ohm-dg-subtle-text: var(--ohm-muted);
-    --ohm-dg-border: var(--ohm-border);
-    --ohm-dg-line: var(--ohm-muted);
-    --ohm-dg-edge-label-background: var(--ohm-bg);
-    --ohm-dg-cluster-background: color-mix(in srgb, var(--ohm-bg), var(--ohm-accent) 6%);
-    --ohm-dg-cluster-border: var(--ohm-border);
-    --ohm-dg-note-background: var(--ohm-code-bg);
-    --ohm-dg-note-border: var(--ohm-blockquote-border);
-    --ohm-dg-note-text: var(--ohm-fg);
-    --ohm-dg-actor-background: var(--ohm-code-bg);
-    --ohm-dg-actor-border: var(--ohm-border);
-    --ohm-dg-actor-text: var(--ohm-fg);
-    --ohm-dg-activation-background: color-mix(in srgb, var(--ohm-code-bg), var(--ohm-accent) 8%);
-    --ohm-dg-activation-border: var(--ohm-muted);
-    --ohm-dg-error: #ff6b6b;
-    --ohm-dg-warning: #ffb84d;
-    --ohm-dg-success: #63e6be;
-
-    --ohm-dg-series-0: var(--ohm-accent);
-    --ohm-dg-series-1: color-mix(in srgb, var(--ohm-accent) 30%, #e8590c 70%);
-    --ohm-dg-series-2: color-mix(in srgb, var(--ohm-accent) 30%, #2f9e44 70%);
-    --ohm-dg-series-3: color-mix(in srgb, var(--ohm-accent) 30%, #e03131 70%);
-    --ohm-dg-series-4: color-mix(in srgb, var(--ohm-accent) 30%, #ae3ec9 70%);
-    --ohm-dg-series-5: color-mix(in srgb, var(--ohm-accent) 30%, #f08c00 70%);
-    --ohm-dg-series-6: color-mix(in srgb, var(--ohm-accent) 30%, #1098ad 70%);
-    --ohm-dg-series-7: color-mix(in srgb, var(--ohm-accent) 30%, #d6336c 70%);
-    --ohm-dg-series-8: color-mix(in srgb, var(--ohm-accent) 30%, #5c940d 70%);
-    --ohm-dg-series-9: color-mix(in srgb, var(--ohm-accent) 30%, #495057 70%);
-    --ohm-dg-series-10: color-mix(in srgb, var(--ohm-accent) 30%, #862e9c 70%);
-    --ohm-dg-series-11: color-mix(in srgb, var(--ohm-accent) 30%, #0ca678 70%);
-  }
+:root[data-theme="light"] {
+  color-scheme: light;
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --ohm-bg: #0f1115;
-  --ohm-fg: #e6e6e6;
-  --ohm-muted: #9aa0a6;
-  --ohm-border: #2a2d33;
-  --ohm-accent: #7aa2f7;
-  --ohm-accent-fg: #0f1115;
-  --ohm-link: #7aa2f7;
-  --ohm-link-hover: #a9c1fb;
-  --ohm-code-bg: #161922;
-  --ohm-code-fg: #e6e6e6;
-  --ohm-topbar-bg: #12141a;
-  --ohm-sidebar-bg: #12141a;
-  --ohm-outline-bg: transparent;
-  --ohm-blockquote-border: #33363e;
-  --ohm-table-border: #2a2d33;
-  --ohm-table-stripe: #171a21;
-  --ohm-shadow: rgba(0, 0, 0, 0.4);
-  --ohm-backdrop: rgba(0, 0, 0, 0.55);
-
-  --ohm-dg-canvas: var(--ohm-bg);
-  --ohm-dg-surface: var(--ohm-code-bg);
-  --ohm-dg-surface-alt: color-mix(in srgb, var(--ohm-code-bg), var(--ohm-accent) 12%);
-  --ohm-dg-surface-muted: var(--ohm-table-stripe);
-  --ohm-dg-text: var(--ohm-fg);
-  --ohm-dg-subtle-text: var(--ohm-muted);
-  --ohm-dg-border: var(--ohm-border);
-  --ohm-dg-line: var(--ohm-muted);
-  --ohm-dg-edge-label-background: var(--ohm-bg);
-  --ohm-dg-cluster-background: color-mix(in srgb, var(--ohm-bg), var(--ohm-accent) 6%);
-  --ohm-dg-cluster-border: var(--ohm-border);
-  --ohm-dg-note-background: var(--ohm-code-bg);
-  --ohm-dg-note-border: var(--ohm-blockquote-border);
-  --ohm-dg-note-text: var(--ohm-fg);
-  --ohm-dg-actor-background: var(--ohm-code-bg);
-  --ohm-dg-actor-border: var(--ohm-border);
-  --ohm-dg-actor-text: var(--ohm-fg);
-  --ohm-dg-activation-background: color-mix(in srgb, var(--ohm-code-bg), var(--ohm-accent) 8%);
-  --ohm-dg-activation-border: var(--ohm-muted);
-  --ohm-dg-error: #ff6b6b;
-  --ohm-dg-warning: #ffb84d;
-  --ohm-dg-success: #63e6be;
-
-  --ohm-dg-series-0: var(--ohm-accent);
-  --ohm-dg-series-1: color-mix(in srgb, var(--ohm-accent) 30%, #e8590c 70%);
-  --ohm-dg-series-2: color-mix(in srgb, var(--ohm-accent) 30%, #2f9e44 70%);
-  --ohm-dg-series-3: color-mix(in srgb, var(--ohm-accent) 30%, #e03131 70%);
-  --ohm-dg-series-4: color-mix(in srgb, var(--ohm-accent) 30%, #ae3ec9 70%);
-  --ohm-dg-series-5: color-mix(in srgb, var(--ohm-accent) 30%, #f08c00 70%);
-  --ohm-dg-series-6: color-mix(in srgb, var(--ohm-accent) 30%, #1098ad 70%);
-  --ohm-dg-series-7: color-mix(in srgb, var(--ohm-accent) 30%, #d6336c 70%);
-  --ohm-dg-series-8: color-mix(in srgb, var(--ohm-accent) 30%, #5c940d 70%);
-  --ohm-dg-series-9: color-mix(in srgb, var(--ohm-accent) 30%, #495057 70%);
-  --ohm-dg-series-10: color-mix(in srgb, var(--ohm-accent) 30%, #862e9c 70%);
-  --ohm-dg-series-11: color-mix(in srgb, var(--ohm-accent) 30%, #0ca678 70%);
-}
-
-/* =========================================================================
-   3. Reset and base
-   ========================================================================= */
-
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
-}
-
-html {
-  -webkit-text-size-adjust: 100%;
 }
 
 body {
   margin: 0;
+  min-width: 0;
   background: var(--ohm-bg);
   color: var(--ohm-fg);
-  font-family: var(--ohm-font-sans);
-  font-size: 16px;
-  line-height: 1.65;
-  min-width: 0;
-  overflow-x: hidden;
 }
 
 img {
@@ -257,38 +102,10 @@ img {
   height: auto;
 }
 
-a {
-  color: var(--ohm-link);
-  text-decoration: none;
-}
-
-a:hover {
-  color: var(--ohm-link-hover);
-  text-decoration: underline;
-}
-
-:focus-visible {
-  outline: 2px solid var(--ohm-accent);
-  outline-offset: 2px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    transition-duration: 0.001ms !important;
-    animation-duration: 0.001ms !important;
-    scroll-behavior: auto !important;
-  }
-}
-
-/* =========================================================================
-   4. Icons — one shared tap target and one shared SVG glyph class, used by
-   both server-rendered and script-injected controls.
-   ========================================================================= */
-
+/* Native buttons retain their browser border, background, font and focus. */
 .ohm-icon-button,
 .ohm-panel-button {
+  box-sizing: border-box;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -296,17 +113,18 @@ a:hover {
   height: 2.25rem;
   flex: none;
   padding: 0;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--ohm-fg);
   cursor: pointer;
-  transition: opacity 0.15s ease;
 }
 
-.ohm-icon-button:hover,
-.ohm-panel-button:hover {
-  background: var(--ohm-code-bg);
+/* Panel controls are labels for the CSS fallback checkboxes. */
+.ohm-panel-button {
+  background: ButtonFace;
+  color: ButtonText;
+  border: 1px solid ButtonBorder;
+}
+
+.ohm-icon-button[hidden] {
+  display: none;
 }
 
 .ohm-icon {
@@ -328,20 +146,6 @@ a:hover {
   display: none;
 }
 
-/* Floating icon buttons that sit on top of code or diagram content need a
-   visible chip so they read against any surface underneath them. */
-
-.ohm-copy-button,
-.ohm-diagram-actions .ohm-icon-button {
-  background: var(--ohm-bg);
-  border: 1px solid var(--ohm-border);
-}
-
-.ohm-copy-button:hover,
-.ohm-diagram-actions .ohm-icon-button:hover {
-  border-color: var(--ohm-muted);
-}
-
 .ohm-visually-hidden {
   position: absolute;
   width: 1px;
@@ -353,10 +157,6 @@ a:hover {
   white-space: nowrap;
   border: 0;
 }
-
-/* =========================================================================
-   5. Layout scaffold
-   ========================================================================= */
 
 .ohm-panel-state {
   position: fixed;
@@ -375,15 +175,21 @@ a:hover {
   opacity: 0;
 }
 
-/* Keep the CSS fallback checkboxes keyboard reachable while showing their
-   focus on the matching panel controls. */
 .ohm-nav-state:focus-visible ~ .ohm-body .ohm-sidebar .ohm-nav-button,
 .ohm-outline-state:focus-visible ~ .ohm-body .ohm-outline .ohm-outline-button {
-  outline: 2px solid var(--ohm-accent);
-  outline-offset: 2px;
+  outline: auto;
 }
 
-/* -- Top bar: full-bleed and sticky, with the brand and theme control. -- */
+/* Only structural boxes use border-box; content keeps browser sizing. */
+.ohm-topbar,
+.ohm-topbar-lead,
+.ohm-topbar-actions,
+.ohm-sidebar,
+.ohm-main,
+.ohm-content,
+.ohm-outline {
+  box-sizing: border-box;
+}
 
 .ohm-topbar {
   position: sticky;
@@ -393,11 +199,10 @@ a:hover {
   align-items: center;
   height: var(--ohm-topbar-h);
   background: var(--ohm-topbar-bg);
-  border-bottom: 1px solid var(--ohm-border);
 }
 
 .ohm-topbar-lead {
-  flex: 0 0 var(--ohm-sidebar-w);
+  flex: 0 1 var(--ohm-sidebar-w);
   width: var(--ohm-sidebar-w);
   min-width: 0;
   display: flex;
@@ -407,15 +212,7 @@ a:hover {
   padding: 0 var(--ohm-gutter);
 }
 
-.ohm-brand,
-.ohm-brand:hover {
-  color: var(--ohm-fg);
-  text-decoration: none;
-}
-
 .ohm-brand {
-  font-weight: 600;
-  font-size: 1.05rem;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -434,10 +231,6 @@ a:hover {
   align-items: flex-start;
 }
 
-/* -- Sidebar: flush against the viewport edge and sticky below the top bar.
-   Its navigation scrolls independently; the state collapses its desktop
-   rail and opens the mobile drawer. -- */
-
 .ohm-sidebar {
   flex: 0 0 var(--ohm-sidebar-w);
   width: var(--ohm-sidebar-w);
@@ -448,8 +241,7 @@ a:hover {
   flex-direction: column;
   overflow: hidden;
   background: var(--ohm-sidebar-bg);
-  border-right: 1px solid var(--ohm-border);
-  padding: 1.5rem var(--ohm-gutter);
+  padding: var(--ohm-gutter);
   z-index: 20;
 }
 
@@ -488,135 +280,32 @@ a:hover {
   overflow-y: auto;
 }
 
-.ohm-nav-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-/* The guide line sits under the group's chevron and child text lines up
-   with the group label text (chevron 0.4 + 0.4 + 0.35rem, then label
-   padding 0.5rem = 1.65rem; here 0.6 + 0.55 + link padding 0.5rem). */
-.ohm-nav-list .ohm-nav-list {
-  margin-top: 0.25rem;
-  margin-left: 0.6rem;
-  padding-left: 0.55rem;
-  border-left: 1px solid var(--ohm-border);
-}
-
-.ohm-nav-item {
-  margin: 0;
-}
-
-.ohm-nav-link {
+.ohm-nav-link,
+.ohm-outline-item a {
   display: block;
-  padding: 0.3rem 0.5rem;
-  border-radius: 6px;
-  color: var(--ohm-fg);
-  font-size: 0.9rem;
-  line-height: 1.4;
-}
-
-.ohm-nav-link:hover {
-  background: var(--ohm-code-bg);
-  color: var(--ohm-fg);
-  text-decoration: none;
-}
-
-.ohm-nav-link--current {
-  color: var(--ohm-accent);
-  font-weight: 600;
-  background: var(--ohm-code-bg);
-}
-
-.ohm-nav-group {
-  margin-top: 0.75rem;
+  overflow-wrap: anywhere;
 }
 
 .ohm-nav-label {
-  display: block;
-  padding: 0.3rem 0.5rem;
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--ohm-muted);
+  overflow-wrap: anywhere;
 }
 
-a.ohm-nav-label {
-  border-radius: 6px;
+/* Keep the browser's disclosure marker beside a linked group label. */
+.ohm-nav-summary .ohm-nav-link {
+  display: inline;
 }
 
-/* The summary row already highlights on hover, so the label link inside it
-   stays transparent rather than doubling the background. */
-a.ohm-nav-label:hover {
-  background: transparent;
-  color: var(--ohm-muted);
-  text-decoration: none;
+.ohm-nav-link--current,
+.ohm-outline-item--active > a {
+  font-weight: bold;
 }
-
-/* -- Collapsible groups: native <details>/<summary>, no script needed.
-   Clicking the label link navigates; clicking the chevron or the rest of
-   the row toggles. -- */
-
-.ohm-nav-summary {
-  display: flex;
-  align-items: center;
-  cursor: pointer;
-  list-style: none;
-  border-radius: 6px;
-}
-
-.ohm-nav-summary::-webkit-details-marker {
-  display: none;
-}
-
-.ohm-nav-summary::before {
-  content: "";
-  width: 0.4rem;
-  height: 0.4rem;
-  border-right: 1.5px solid var(--ohm-muted);
-  border-bottom: 1.5px solid var(--ohm-muted);
-  transform: rotate(-45deg);
-  margin: 0 0.35rem 0 0.4rem;
-  flex: none;
-  transition: transform 0.15s ease;
-}
-
-.ohm-nav-details[open] > .ohm-nav-summary::before {
-  transform: rotate(45deg);
-}
-
-.ohm-nav-summary > .ohm-nav-label {
-  flex: 1;
-  min-width: 0;
-}
-
-.ohm-nav-summary:hover {
-  background: var(--ohm-code-bg);
-}
-
-.ohm-nav-summary:focus-visible {
-  outline: 2px solid var(--ohm-accent);
-  outline-offset: 1px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .ohm-nav-summary::before {
-    transition: none;
-  }
-}
-
-/* -- Main column: takes the remaining width and centres a wide reading
-   measure within it, so the column grows into the space the sidebar and
-   outline leave rather than wasting it. -- */
 
 .ohm-main {
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
   justify-content: center;
-  padding: 2.5rem var(--ohm-gutter) 4rem;
+  padding: 1rem;
 }
 
 .ohm-content {
@@ -624,8 +313,6 @@ a.ohm-nav-label:hover {
   max-width: var(--ohm-content-max);
   min-width: 0;
 }
-
-/* -- Outline rail -- */
 
 .ohm-outline {
   flex: 0 0 var(--ohm-outline-w);
@@ -636,7 +323,7 @@ a.ohm-nav-label:hover {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  padding: 1.5rem var(--ohm-gutter);
+  padding: var(--ohm-gutter);
   background: var(--ohm-outline-bg);
 }
 
@@ -656,62 +343,21 @@ a.ohm-nav-label:hover {
   overflow-y: auto;
 }
 
-.ohm-outline-title {
-  margin: 0 0 0.5rem;
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--ohm-muted);
-}
-
-.ohm-outline-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  border-left: 1px solid var(--ohm-border);
-}
-
-.ohm-outline-item a {
-  display: block;
-  padding: 0.2rem 0 0.2rem 0.75rem;
-  margin-left: -1px;
-  border-left: 1px solid transparent;
-  font-size: 0.85rem;
-  color: var(--ohm-muted);
-  line-height: 1.4;
-}
-
-.ohm-outline-item a:hover {
-  color: var(--ohm-fg);
-  text-decoration: none;
-}
-
-.ohm-outline-item--active > a {
-  border-left-color: var(--ohm-accent);
-  color: var(--ohm-accent);
-  font-weight: 600;
-}
-
 .ohm-outline-item--h3 a {
-  padding-left: 1.5rem;
+  padding-left: 0.75rem;
 }
 
 .ohm-outline-item--h4 a {
-  padding-left: 2.25rem;
+  padding-left: 1.5rem;
 }
 
 .ohm-outline-item--h5 a {
-  padding-left: 3rem;
+  padding-left: 2.25rem;
 }
 
 .ohm-outline-item--h6 a {
-  padding-left: 3.75rem;
+  padding-left: 3rem;
 }
-
-/* =========================================================================
-   6. Content typography
-   ========================================================================= */
 
 .ohm-content h1,
 .ohm-content h2,
@@ -719,189 +365,33 @@ a.ohm-nav-label:hover {
 .ohm-content h4,
 .ohm-content h5,
 .ohm-content h6 {
-  font-weight: 650;
-  line-height: 1.3;
   scroll-margin-top: calc(var(--ohm-topbar-h) + 16px);
 }
 
-.ohm-content h1 {
-  font-size: 2rem;
-  margin: 0 0 1rem;
-  padding-bottom: 0.5rem;
-  border-bottom: 1px solid var(--ohm-border);
-}
-
-.ohm-content h2 {
-  font-size: 1.5rem;
-  margin: 2.5rem 0 1rem;
-  padding-bottom: 0.3rem;
-  border-bottom: 1px solid var(--ohm-border);
-}
-
-.ohm-content h3 {
-  font-size: 1.25rem;
-  margin: 2rem 0 0.75rem;
-}
-
-.ohm-content h4 {
-  font-size: 1.05rem;
-  margin: 1.5rem 0 0.5rem;
-}
-
-.ohm-content h5,
-.ohm-content h6 {
-  font-size: 0.95rem;
-  margin: 1.25rem 0 0.5rem;
-  color: var(--ohm-muted);
-}
-
-.ohm-content p {
-  margin: 0 0 1rem;
-}
-
-.ohm-content ul,
-.ohm-content ol {
-  margin: 0 0 1rem;
-  padding-left: 1.5rem;
-}
-
-.ohm-content li + li {
-  margin-top: 0.25rem;
-}
-
-.ohm-content li > ul,
-.ohm-content li > ol {
-  margin-top: 0.25rem;
-  margin-bottom: 0;
-}
-
-/* Task lists (`- [ ]`, `- [x]`). The renderer tags each task item's `<li>` with
-   `ohm-task` (R7.8): `pulldown-cmark` supplies no class of its own, and in a
-   loose list the checkbox sits inside a `<p>`, so matching on the item's
-   contents would miss it. Dropping the marker on the item covers ordered lists
-   too, where it would otherwise be a number. The checkbox stays read-only as
-   emitted: no script is involved, and a reader's view of a page never diverges
-   from its source. */
 .ohm-content li.ohm-task {
   list-style: none;
 }
 
-.ohm-content li.ohm-task input[type="checkbox"] {
-  /* The list's padding-left is 1.5rem. A negative left margin pulls the box into
-     it (1rem box + 0.4rem gap), so a task item's text aligns with plain items.
-     `rem` is used instead of `em` because `em` on an `<input>` resolves against
-     the control's font size, not inherited body text. */
-  margin: 0 0.4rem 0 -1.4rem;
-  width: 1rem;
-  height: 1rem;
-  vertical-align: -0.1em;
-  accent-color: var(--ohm-accent);
-}
-
-.ohm-content blockquote {
-  margin: 0 0 1rem;
-  padding: 0.5rem 1rem;
-  border-left: 3px solid var(--ohm-blockquote-border);
-  color: var(--ohm-muted);
-}
-
-.ohm-content blockquote > :last-child {
-  margin-bottom: 0;
-}
-
-.ohm-content hr {
-  margin: 2rem 0;
-  border: none;
-  border-top: 1px solid var(--ohm-border);
-}
-
-.ohm-content strong {
-  font-weight: 700;
-}
-
-.ohm-content em {
-  font-style: italic;
-}
-
-.ohm-content del {
-  text-decoration: line-through;
-  color: var(--ohm-muted);
-}
-
-.ohm-content img {
-  display: block;
-  margin: 1rem 0;
-  border-radius: 6px;
-}
-
-/* -- Tables: block-level scroll container so the page never scrolls
-   sideways, per R11.1/R8.9-style horizontal-scroll avoidance. -- */
-
 .ohm-content table {
   display: block;
-  width: 100%;
   max-width: 100%;
   overflow-x: auto;
-  margin: 0 0 1rem;
-  border-collapse: collapse;
-  font-size: 0.9rem;
-}
-
-.ohm-content table > * {
-  min-width: max-content;
-}
-
-.ohm-content th,
-.ohm-content td {
-  padding: 0.5rem 0.75rem;
-  border: 1px solid var(--ohm-table-border);
-  text-align: left;
-}
-
-.ohm-content th {
-  font-weight: 700;
-  background: var(--ohm-table-stripe);
-}
-
-.ohm-content tbody tr:nth-child(even) {
-  background: var(--ohm-table-stripe);
-}
-
-/* -- Inline and block code -- */
-
-.ohm-content code {
-  font-family: var(--ohm-font-mono);
-  font-size: 0.875em;
-  background: var(--ohm-code-bg);
-  color: var(--ohm-code-fg);
-  padding: 0.15em 0.4em;
-  border-radius: 4px;
 }
 
 .ohm-content pre {
   position: relative;
-  margin: 0 0 1rem;
-  padding: 1rem;
   overflow-x: auto;
-  background: var(--ohm-code-bg);
-  border-radius: 8px;
   max-width: 100%;
 }
 
 .ohm-content pre code {
-  display: block;
-  padding: 0;
-  background: none;
-  border-radius: 0;
-  font-size: 0.85rem;
-  line-height: 1.6;
   white-space: pre;
 }
 
-/* Copy button injected by ohimark.js as a sibling of <code>, never a child
-   of it, so it never ends up in the copied text (R8.10). Hidden until the
-   block is hovered or the button itself has focus, so it stays keyboard
-   reachable without cluttering the page. */
+/* The injected control must fit inside a short native code block's scroll box. */
+.ohm-content pre:has(> .ohm-copy-button) {
+  min-height: calc(2.25rem + 1rem);
+}
 
 .ohm-content pre > .ohm-copy-button {
   position: absolute;
@@ -915,24 +405,19 @@ a.ohm-nav-label:hover {
   opacity: 1;
 }
 
-/* =========================================================================
-   7. Diagrams (R7.4, R8.2, R8.6, R8.9, R8.10)
-   ========================================================================= */
-
+/* Rendered diagrams share the page; source remains native preformatted text. */
 .ohm-diagram {
   position: relative;
-  margin: 0 0 1.5rem;
+  margin: 0 0 1rem;
   padding: 0;
 }
 
 .ohm-diagram-graphic {
   display: block;
-  overflow-x: auto;
   max-width: 100%;
-  background: var(--ohm-dg-canvas);
-  border: 0;
-  border-radius: 8px;
-  padding: 1rem;
+  overflow-x: auto;
+  background: transparent;
+  padding: 0;
 }
 
 .ohm-diagram-graphic svg {
@@ -942,14 +427,7 @@ a.ohm-nav-label:hover {
   margin: 0 auto;
 }
 
-.ohm-diagram-graphic svg .node rect.label-container,
-.ohm-diagram-graphic svg .cluster rect {
-  rx: 6px;
-  ry: 6px;
-}
-
-/* Gantt charts are drawn by ohimark itself (src/gantt.rs) and carry no colours
-   of their own, only these classes. */
+/* Native Gantt SVGs carry classes rather than embedded colours. */
 .ohm-gantt text {
   font-family: var(--ohm-font-sans);
   fill: var(--ohm-dg-text);
@@ -1006,20 +484,16 @@ a.ohm-nav-label:hover {
   display: block;
 }
 
-/* Injected only when JavaScript runs; never leaves a gap when absent. */
-
 .ohm-diagram-actions {
-  position: absolute;
-  top: 0.5rem;
-  right: 0.5rem;
+  position: static;
   z-index: 1;
   display: flex;
+  justify-content: flex-end;
   gap: 0.25rem;
+  margin-top: 0.5rem;
 }
 
-/* Keep diagram controls reachable while fullscreen content uses the rest of
-   the viewport. The SVG's intrinsic ratio is preserved while both dimensions
-   are constrained to the graphic area. */
+/* Fullscreen keeps controls reachable and preserves the SVG's intrinsic ratio. */
 .ohm-diagram:fullscreen {
   display: flex;
   flex-direction: column;
@@ -1039,12 +513,13 @@ a.ohm-nav-label:hover {
 }
 
 .ohm-diagram:fullscreen .ohm-diagram-actions {
+  position: absolute;
   top: 0.5rem;
   right: 0.5rem;
+  margin: 0;
 }
 
 .ohm-diagram:fullscreen:not(.ohm-diagram--source) .ohm-diagram-graphic {
-  border-radius: 0;
   display: flex;
   flex: 1 1 0;
   align-items: center;
@@ -1075,10 +550,7 @@ a.ohm-nav-label:hover {
   width: 100%;
 }
 
-/* =========================================================================
-   8. Responsive panels (R8.4/R8.5/R8.8 — CSS checkbox fallback)
-   ========================================================================= */
-
+/* Responsive panels also work without JavaScript through native checkboxes. */
 @media (max-width: 960px) {
   .ohm-sidebar {
     position: fixed;
@@ -1087,10 +559,8 @@ a.ohm-nav-label:hover {
     bottom: 0;
     width: 85%;
     max-width: 320px;
-    padding: 1.5rem var(--ohm-gutter);
+    padding: var(--ohm-gutter);
     transform: translateX(calc(-100% + var(--ohm-rail-w)));
-    box-shadow: 2px 0 12px var(--ohm-shadow);
-    transition: transform 0.2s ease;
   }
 
   .ohm-nav-state:not(:checked) ~ .ohm-body .ohm-sidebar {
@@ -1131,7 +601,7 @@ a.ohm-nav-label:hover {
   }
 
   .ohm-main {
-    padding: 2rem 1.25rem 3rem calc(var(--ohm-rail-w) + 1.25rem);
+    padding: 1rem 1rem 1rem calc(var(--ohm-rail-w) + 1rem);
   }
 }
 
@@ -1167,7 +637,6 @@ a.ohm-nav-label:hover {
     max-width: none;
   }
 
-  /* Override merman's intrinsic inline maximum when the navigation is collapsed. */
   .ohm-nav-state:checked ~ .ohm-body .ohm-content .ohm-diagram-graphic > svg {
     width: 100%;
     max-width: 100% !important;
@@ -1208,7 +677,6 @@ a.ohm-nav-label:hover {
     max-width: none;
   }
 
-  /* Override merman's intrinsic inline maximum when the outline is collapsed. */
   .ohm-outline-state:checked ~ .ohm-body .ohm-content .ohm-diagram-graphic > svg {
     width: 100%;
     max-width: 100% !important;
@@ -1219,14 +687,5 @@ a.ohm-nav-label:hover {
   .ohm-outline,
   .ohm-outline-state {
     display: none;
-  }
-}
-
-/* Never let any element force horizontal scroll on narrow phones. */
-
-@media (max-width: 480px) {
-  .ohm-content pre,
-  .ohm-diagram-graphic {
-    border-radius: 6px;
   }
 }
