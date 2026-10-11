@@ -36,6 +36,7 @@
       ${docsName} = final.callPackage ./nix/docs.nix {
         inherit pname;
         package = final.${pname};
+        theme = "bookish";
       };
     };
   in {

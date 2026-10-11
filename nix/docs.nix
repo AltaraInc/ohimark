@@ -8,9 +8,56 @@
 , watchexec
 , pname
 , package
+, theme ? null
+, stylesheet ? null
 }:
 
 let
+  # Optional embedded theme preset. `null` leaves ohimark on its native
+  # default; the stylesheet argument below remains an optional custom file.
+  themeOption =
+    if theme == null then
+      ""
+    else if builtins.elem theme [ "default" "bookish" ] then
+      " --theme ${lib.escapeShellArg theme}"
+    else
+      throw "unsupported docs theme; expected null, 'default', or 'bookish'";
+
+  # Optional stylesheet applied to both docs outputs. Accept a Nix path within
+  # this repository or a repo-relative string such as `themes/bookish.css`.
+  stylesheetRelative =
+    if stylesheet == null then
+      null
+    else if builtins.isPath stylesheet then
+      let
+        repoPrefix = "${toString ../.}/";
+        selectedPath = toString stylesheet;
+      in
+      if lib.hasPrefix repoPrefix selectedPath then
+        lib.removePrefix repoPrefix selectedPath
+      else
+        throw "docs stylesheet path must be inside this repository"
+    else
+      stylesheet;
+  stylesheetSource =
+    if stylesheetRelative == null then
+      null
+    else
+      builtins.path {
+        path = ../. + "/${stylesheetRelative}";
+        name = "${pname}-docs.css";
+      };
+  stylesheetOption =
+    if stylesheetSource == null then
+      ""
+    else
+      " --stylesheet ${lib.escapeShellArg "${stylesheetSource}"}";
+  stylesheetRepoOption =
+    if stylesheetRelative == null then
+      ""
+    else
+      " --stylesheet \"$repo\"/${lib.escapeShellArg stylesheetRelative}";
+
   # The Markdown sources this site renders. Listed explicitly rather than
   # handing `ohimark` the whole repository: this fileset decides what reaches
   # the build sandbox, so a broader one would copy `target/` into the store
@@ -30,7 +77,7 @@ let
   # by the very tool it describes ("dogfooding"). `--todo` collects the open
   # task-list items into the site's `TODO.html` page.
   docs = runCommand "${pname}-docs" { } ''
-    ${lib.getExe package} --todo --out $out ${docsRoot}
+    ${lib.getExe package}${themeOption}${stylesheetOption} --todo --out $out ${docsRoot}
   '';
 
   # The wrappers below serve the *working tree* rather than the sealed `docs`
@@ -83,7 +130,9 @@ let
       # collects the open task-list items into the site's `TODO.html` page.
       mkdir -p "$state/site"
       rm -rf "$state/next"
-      ${lib.getExe package} --todo --out "$state/next" --root README.md "$repo"
+      # Configured stylesheet paths are literal filenames, including dollar signs.
+      # shellcheck disable=SC2016
+      ${lib.getExe package}${themeOption} --todo --out "$state/next" --root README.md "$repo"${stylesheetRepoOption}
       find "$state/site" -mindepth 1 -delete
       cp -R "$state/next/." "$state/site/"
       rm -rf "$state/next"

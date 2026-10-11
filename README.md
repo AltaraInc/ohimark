@@ -139,6 +139,24 @@ defaulting to 8080; `nix run` needs `--` before it. The cache directory is
 `$XDG_CACHE_HOME/ohimark/docs`, or `~/.cache/ohimark/docs` when that variable
 is unset; it is reused across runs, and `OHIMARK_DOCS_STATE` overrides it.
 
+Choose the Nix docs theme in `flake.nix`, in the argument set for the `docs`
+output's `callPackage ./nix/docs.nix` call:
+
+```nix
+theme = "bookish";
+```
+
+Use `"default"` for the modern preset or `null` for native browser defaults. The
+normal flake app accepts `--theme`; the configured theme is passed to both the `docs`
+and `watchdocs` builders. Presets are embedded, so no theme file is needed at runtime.
+The optional `stylesheet` argument remains available for a custom override, supplied as
+an in-repository Nix path or a repository-relative string, and is linked after the preset.
+This configuration controls `nix build path:.#docs`, `nix run path:.#docs`, and
+`nix run path:.#watchdocs`. Restart a running `docs` or `watchdocs` app after changing
+the configured theme or embedded preset CSS; a new `nix run` invocation rebuilds the
+immutable executable or wrapper as needed. `watchdocs` still reflects Markdown and
+configured custom stylesheet edits.
+
 ### Nightly toolchain and Polonius
 
 This crate pins a dated nightly toolchain (`rust-toolchain.toml`, currently

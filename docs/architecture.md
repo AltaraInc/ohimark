@@ -110,7 +110,15 @@ scaffold while leaving typography, color and element defaults to the browser. Th
 `--theme default` and `--theme bookish` selections copy the embedded bytes of
 `themes/default.css` or `themes/bookish.css` to `assets/theme.css`; no runtime theme file is
 needed. Without a selected theme or custom stylesheet, output keeps the browser-native
-defaults.
+defaults. The normal Nix package CLI accepts `--theme`; docs and watchdocs builders pass
+their configured theme through the same flag to that binary. The docs call accepts
+`theme = "default"`, `theme = "bookish"`, or `theme = null`; its default is `null`, while
+the repository flake selects Bookish. Presets need no runtime theme files.
+The separate optional `stylesheet` argument remains a custom override: it accepts an
+in-repository Nix path, repository-relative path string, or `null`, and is linked after
+the selected preset. The configured theme and stylesheet apply to sealed and live outputs;
+watchdocs also reflects edits to the configured custom stylesheet.
+
 `--stylesheet` selects one local CSS file from outside or inside `DIR`; it is independent
 of Markdown discovery and ignore rules. The supplied path and its canonical path must be
 UTF-8, and the path must name a readable regular file. The file contents may be arbitrary
