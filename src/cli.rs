@@ -6,7 +6,7 @@ use clap::{ArgAction, Parser};
 use crate::model::{Error, Result};
 
 /// The raw command-line surface:
-/// `ohimark --out OUTDIR [--root FILENAME] [--exclude GLOB]... [--todo] DIR` (R9.1).
+/// `ohimark --out OUTDIR [--root FILENAME] [--stylesheet FILE] [--exclude GLOB]... [--todo] DIR` (R9.1).
 ///
 /// Fields accept arbitrary OS strings (not `Utf8PathBuf`) so that a non-UTF-8
 /// argument surfaces as a clear `Error::Config` from [`Args::into_config`]
@@ -16,7 +16,7 @@ use crate::model::{Error, Result};
     name = "ohimark",
     version,
     about = "Generate a static HTML site from a directory of Markdown.",
-    // R9.6: for `--root` and `--out`, a repeated occurrence overrides the
+    // R9.6: for scalar options, a repeated occurrence overrides the
     // previous one instead of `clap`'s default `ArgumentConflict` error.
     args_override_self = true
 )]
@@ -45,6 +45,15 @@ pub struct Args {
         help = "Home file, relative to DIR, emitted as index.html [default: README.md]"
     )]
     pub root: std::path::PathBuf,
+
+    /// An optional stylesheet, relative to the working directory or absolute.
+    /// Loaded after the bundled stylesheet so its rules can override it.
+    #[arg(
+        long = "stylesheet",
+        value_name = "FILE",
+        help = "Custom stylesheet to load after the bundled styles (relative to the working directory or absolute)"
+    )]
+    pub stylesheet: Option<std::path::PathBuf>,
 
     /// A glob to exclude from discovery, matched against `DIR`-relative paths.
     /// Repeatable; every occurrence accumulates (R9.6).
@@ -75,6 +84,8 @@ pub struct Config {
     pub out: Utf8PathBuf,
     /// The `--root` file as a `DIR`-relative path. Defaults to `README.md`.
     pub root: Utf8PathBuf,
+    /// The optional `--stylesheet` file, canonicalised to an absolute path.
+    pub stylesheet: Option<Utf8PathBuf>,
     /// Repeatable `--exclude` globs, in the order given.
     pub excludes: Vec<String>,
     /// `Some(rel)` when `out` lies inside `dir`; the `DIR`-relative path of the
@@ -93,11 +104,17 @@ impl Args {
         reject_out_swallows_dir(&out, &dir)?;
         let out_inside_dir = compute_out_inside_dir(&out, &dir);
         let root = resolve_root(&to_utf8(&self.root, "--root")?)?;
+        let stylesheet = self
+            .stylesheet
+            .as_deref()
+            .map(validate_stylesheet)
+            .transpose()?;
 
         Ok(Config {
             dir,
             out,
             root,
+            stylesheet,
             excludes: self.excludes,
             out_inside_dir,
             todo: self.todo,
@@ -123,6 +140,35 @@ fn validate_dir(dir: &std::path::Path) -> Result<Utf8PathBuf> {
         .map_err(|source| Error::Config(format!("DIR `{dir}` could not be resolved: {source}")))?;
     Utf8PathBuf::from_path_buf(canonical)
         .map_err(|p| Error::Config(format!("DIR `{}` is not valid UTF-8", p.display())))
+}
+
+/// An explicitly selected stylesheet can live anywhere, independently of discovery.
+fn validate_stylesheet(path: &std::path::Path) -> Result<Utf8PathBuf> {
+    let path = to_utf8(path, "--stylesheet")?;
+    let absolute = resolve_against_cwd(path.clone()).map_err(|source| {
+        Error::Config(format!(
+            "--stylesheet `{path}` could not be resolved: {source}"
+        ))
+    })?;
+    let metadata = std::fs::metadata(&absolute).map_err(|source| {
+        Error::Config(format!("--stylesheet `{path}` could not be read: {source}"))
+    })?;
+    if !metadata.is_file() {
+        return Err(Error::Config(format!(
+            "--stylesheet `{path}` is not a regular file"
+        )));
+    }
+    let canonical = std::fs::canonicalize(&absolute).map_err(|source| {
+        Error::Config(format!(
+            "--stylesheet `{path}` could not be resolved: {source}"
+        ))
+    })?;
+    Utf8PathBuf::from_path_buf(canonical).map_err(|canonical| {
+        Error::Config(format!(
+            "--stylesheet `{path}` resolves to `{}`, which is not valid UTF-8",
+            canonical.display()
+        ))
+    })
 }
 
 /// Join a relative path to the current working directory; leave an absolute one alone.
@@ -226,6 +272,130 @@ fn normalize_relative(rel: &str) -> Option<Utf8PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stylesheet_is_optional_and_last_value_wins_in_either_position() {
+        let default = Args::try_parse_from(["ohimark", "dir", "--out", "site"]).unwrap();
+        assert_eq!(default.stylesheet, None);
+        for arguments in [
+            vec![
+                "ohimark",
+                "--stylesheet",
+                "theme.css",
+                "dir",
+                "--out",
+                "site",
+            ],
+            vec![
+                "ohimark",
+                "dir",
+                "--out",
+                "site",
+                "--stylesheet",
+                "theme.css",
+            ],
+            vec![
+                "ohimark",
+                "--stylesheet",
+                "old.css",
+                "dir",
+                "--out",
+                "site",
+                "--stylesheet",
+                "theme.css",
+            ],
+        ] {
+            let args = Args::try_parse_from(arguments).unwrap();
+            assert_eq!(args.stylesheet, Some(std::path::PathBuf::from("theme.css")));
+        }
+    }
+
+    #[test]
+    fn stylesheet_relative_to_cwd_is_canonicalized_without_changing_cwd() {
+        let cwd = std::env::current_dir().unwrap();
+        let fixture = tempfile::tempdir_in(&cwd).unwrap();
+        let stylesheet = fixture.path().join("theme");
+        std::fs::write(&stylesheet, b":root { --ohm-accent: blue; }").unwrap();
+        let relative = stylesheet.strip_prefix(&cwd).unwrap();
+        let validated = validate_stylesheet(relative).unwrap();
+        assert_eq!(
+            validated.as_std_path(),
+            std::fs::canonicalize(&stylesheet).unwrap()
+        );
+        assert_eq!(std::env::current_dir().unwrap(), cwd);
+    }
+
+    #[test]
+    fn absolute_stylesheet_outside_dir_is_independent_of_exclusions() {
+        let fixture = tempfile::tempdir().unwrap();
+        let dir = fixture.path().join("docs");
+        std::fs::create_dir(&dir).unwrap();
+        let stylesheet = fixture.path().join("theme");
+        std::fs::write(&stylesheet, b"body { color: purple; }").unwrap();
+        let args = Args {
+            dir,
+            out: fixture.path().join("site"),
+            root: "README.md".into(),
+            stylesheet: Some(stylesheet.clone()),
+            excludes: vec!["**".into()],
+            todo: false,
+        };
+        let config = args.into_config().unwrap();
+        let validated = config.stylesheet.unwrap();
+        assert_eq!(
+            validated.as_std_path(),
+            std::fs::canonicalize(stylesheet).unwrap()
+        );
+        assert!(!validated.starts_with(config.dir));
+    }
+
+    #[test]
+    fn stylesheet_missing_or_non_regular_paths_name_the_option_and_path() {
+        let fixture = tempfile::tempdir().unwrap();
+        let missing = fixture.path().join("missing.css");
+        for path in [missing.as_path(), fixture.path()] {
+            let error = validate_stylesheet(path).unwrap_err().to_string();
+            assert!(error.starts_with("configuration:"), "{error}");
+            assert!(error.contains("--stylesheet"), "{error}");
+            assert!(error.contains(path.to_str().unwrap()), "{error}");
+        }
+        let error = validate_stylesheet(fixture.path()).unwrap_err().to_string();
+        assert!(error.contains("not a regular file"), "{error}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stylesheet_requires_utf8_for_argument() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let fixture = tempfile::tempdir().unwrap();
+        let non_utf8 = fixture
+            .path()
+            .join(std::ffi::OsString::from_vec(b"theme-\xff.css".to_vec()));
+        let error = validate_stylesheet(&non_utf8).unwrap_err().to_string();
+        assert!(error.contains("--stylesheet"), "{error}");
+        assert!(error.contains("not valid UTF-8"), "{error}");
+    }
+
+    // The macOS sandbox cannot create the non-UTF-8 filename this fixture needs.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn stylesheet_requires_utf8_for_canonical_target() {
+        use std::os::unix::ffi::OsStringExt;
+        use std::os::unix::fs::symlink;
+
+        let fixture = tempfile::tempdir().unwrap();
+        let non_utf8 = fixture
+            .path()
+            .join(std::ffi::OsString::from_vec(b"theme-\xff.css".to_vec()));
+        std::fs::write(&non_utf8, b"body {}").unwrap();
+        let link = fixture.path().join("theme.css");
+        symlink(&non_utf8, &link).unwrap();
+        let error = validate_stylesheet(&link).unwrap_err().to_string();
+        assert!(error.contains(link.to_str().unwrap()), "{error}");
+        assert!(error.contains("resolves to"), "{error}");
+        assert!(error.contains("not valid UTF-8"), "{error}");
+    }
 
     #[test]
     fn r9_1_dir_and_out_are_required() {

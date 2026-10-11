@@ -16,6 +16,8 @@ pub const APP_JS: &str = include_str!("assets/ohimark.js");
 
 /// Output-relative path the stylesheet is written to.
 pub const STYLE_PATH: &str = "assets/ohimark.css";
+/// Output-relative path the optional custom stylesheet is copied to.
+pub const CUSTOM_STYLE_PATH: &str = "assets/custom.css";
 /// Output-relative path the script is written to.
 pub const SCRIPT_PATH: &str = "assets/ohimark.js";
 
@@ -138,6 +140,17 @@ fn render_outline(outline: &[OutlineEntry]) -> String {
 /// always name an explicit `.html` file, never a directory, so the site
 /// works over `file://`.
 pub fn shell(page: &Page, site: &Site, body: &str, outline: &[OutlineEntry]) -> String {
+    shell_with_stylesheets(page, site, body, outline, false)
+}
+
+/// Render the shell with the bundled and optional custom stylesheet.
+pub(crate) fn shell_with_stylesheets(
+    page: &Page,
+    site: &Site,
+    body: &str,
+    outline: &[OutlineEntry],
+    include_stylesheet: bool,
+) -> String {
     let dir = page.target.dir();
     let style_href = links::relative_to(dir, Utf8Path::new(STYLE_PATH));
     let script_href = links::relative_to(dir, Utf8Path::new(SCRIPT_PATH));
@@ -172,6 +185,12 @@ pub fn shell(page: &Page, site: &Site, body: &str, outline: &[OutlineEntry]) -> 
     out.push_str("<link rel=\"stylesheet\" href=\"");
     out.push_str(&style_href);
     out.push_str("\">\n");
+    if include_stylesheet {
+        let custom_style_href = links::relative_to(dir, Utf8Path::new(CUSTOM_STYLE_PATH));
+        out.push_str("<link rel=\"stylesheet\" href=\"");
+        out.push_str(&custom_style_href);
+        out.push_str("\">\n");
+    }
     // The only inline script on the page: applies the stored theme before
     // first paint so the page does not flash (R8.1). Kept byte-for-byte.
     out.push_str(
@@ -283,6 +302,41 @@ mod tests {
             }
         }
         out
+    }
+
+    #[test]
+    fn optional_stylesheets_follow_base_with_page_relative_hrefs() {
+        let root = page("docs/home.md", "index.html", "Home", true);
+        let nested = page("docs/deep/guide.md", "docs/deep/guide.html", "Guide", false);
+        let todo = page("TODO.md", "TODO.html", "TODO", false);
+        let site = site_with(vec![root.clone(), nested.clone(), todo.clone()], vec![]);
+        for (page, prefix) in [(&root, ""), (&nested, "../../"), (&todo, "")] {
+            for include_stylesheet in [false, true] {
+                let html =
+                    shell_with_stylesheets(page, &site, "<p>Body</p>", &[], include_stylesheet);
+                let mut expected = vec![format!(
+                    "<link rel=\"stylesheet\" href=\"{prefix}assets/ohimark.css\">"
+                )];
+                if include_stylesheet {
+                    expected.push(format!(
+                        "<link rel=\"stylesheet\" href=\"{prefix}assets/custom.css\">"
+                    ));
+                }
+                let actual: Vec<_> = html
+                    .lines()
+                    .filter(|line| line.starts_with("<link rel=\"stylesheet\""))
+                    .collect();
+                assert_eq!(actual, expected);
+                assert!(!html.contains("docs/home.md"));
+            }
+
+            let default_html = shell(page, &site, "<p>Body</p>", &[]);
+            assert!(!default_html.contains("custom.css"));
+            assert_eq!(
+                default_html,
+                shell_with_stylesheets(page, &site, "<p>Body</p>", &[], false)
+            );
+        }
     }
 
     #[test]

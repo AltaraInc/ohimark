@@ -14,16 +14,60 @@ Task list items (`- [ ]` and `- [x]`) render as checkboxes reflecting the marker
 
 ## Usage
 
-`ohimark` requires a root directory to start from and a directory to write to. It optionally accepts a root file (defaulting to `README.md`), exclusion globs, and a flag to collect open tasks.
+`ohimark` requires a root directory to start from and a directory to write to. It optionally accepts a root file (defaulting to `README.md`), exclusion globs, a custom stylesheet, and a flag to collect open tasks.
 
 ```sh
-ohimark --out OUTDIR [--root FILENAME] [--exclude GLOB]... [--todo] DIR
+ohimark --out OUTDIR [--root FILENAME] [--exclude GLOB]... [--todo] [--stylesheet FILE] DIR
 ```
 
 - `--out` or `-o`: directory to write the generated static files to. Required; it must be empty or not yet exist.
 - `--root` or `-r`: the site's home page, given as a path relative to `DIR`. Defaults to `README.md`. It is emitted as `index.html`.
 - `--exclude`: a glob of paths to skip, in addition to the ignore files. Repeatable.
 - `--todo`: collect every unchecked task list item (`- [ ]`) from all pages into the root-level TODO page, under a heading linking each file, in page order. If `DIR` has a top-level `TODO.md`, the tasks are appended to it under a `Collected Tasks` heading and its own tasks are not repeated; otherwise a `TODO.html` page is generated. When there are no open tasks to collect, nothing is added and no `TODO.html` is generated. This only affects the HTML output: nothing is written to `DIR`. Off by default.
+- `--stylesheet FILE`: add a stylesheet after the bundled stylesheet. The file must be an existing, readable regular file; its supplied and canonical paths must be UTF-8. Its contents are copied unchanged. It may be inside or outside `DIR`, including a file ignored or excluded from discovery. Relative paths are resolved from the current working directory; absolute paths are also accepted. If repeated, the last value is used.
+
+### Custom styles
+
+Pass `--stylesheet FILE` to add a local CSS file after the bundled styles:
+
+```sh
+ohimark --out site --stylesheet overrides.css docs
+```
+
+Pages link the bundled stylesheet, followed by `assets/custom.css`, with paths
+relative to each page, including nested pages. A later rule wins when specificity
+is equal. Override the `--ohm-*` custom properties and match the site's light and
+dark theme selectors, as in this example:
+
+```css
+:root {
+  --ohm-font-sans: "Trebuchet MS", sans-serif;
+  --ohm-accent: #9c2c77;
+  --ohm-link: var(--ohm-accent);
+  --ohm-link-hover: #6d1c52;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ohm-accent: #ec9dd1;
+    --ohm-link: var(--ohm-accent);
+    --ohm-link-hover: #f5c1e4;
+  }
+}
+:root[data-theme="dark"] {
+  --ohm-accent: #ec9dd1;
+  --ohm-link: var(--ohm-accent);
+  --ohm-link-hover: #f5c1e4;
+}
+body { font-family: var(--ohm-font-sans); }
+a { color: var(--ohm-link); }
+a:hover { color: var(--ohm-link-hover); }
+```
+
+The custom stylesheet is included as-is: ohimark does not process `url()` or
+`@import`, copy their dependencies, or fetch them. Relative URLs in custom CSS are
+resolved from `assets/custom.css`; include any referenced resources yourself if the
+built site must work offline and remain portable. Rebuild the site after changing
+the source CSS file.
 
 ## Navigation, titles, and ignoring
 

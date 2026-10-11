@@ -3,7 +3,8 @@
 `ohimark` is a single-shot static site generator: one process reads a directory of
 Markdown and writes a directory of HTML, CSS, JS and SVG. It shells out to no external
 binary and makes no network request. Mermaid diagrams are rendered in-process, so the
-built site ships no diagram runtime at all.
+built site ships no diagram runtime at all. An optional author-supplied stylesheet is
+copied unchanged; any resources it references are the author's responsibility.
 
 [Requirements](requirements.md) specifies the behaviour; this document describes the
 shape of the code that produces it.
@@ -12,20 +13,24 @@ shape of the code that produces it.
 
 ```mermaid
 flowchart TD
-  ARGS["argv"] -->|"parse and validate"| CFG["Config"]
+  ARGS["argv"] -->|"parse and validate --stylesheet"| CFG["Config"]
   CFG -->|"root directory, excludes"| WALK["Discover sources"]
   WALK -->|"ordered source set"| READ["Read files and extract titles<br/>(parallel)"]
   READ -->|"titles and retained bytes"| MAP["Build source-to-target map,<br/>detect collisions, build nav tree"]
   MAP -->|"Site: pages, map, nav"| REND["Render pages<br/>(parallel)"]
   REND -->|"with --todo"| TODO["Collect open tasks (parallel),<br/>re-render the TODO page"]
-  TODO --> STAGE
-  REND -->|"html, asset references, outline"| STAGE["Stage in temp dir outside DIR"]
-  STAGE -->|"referenced files only"| COPY["Copy assets"]
-  COPY -->|"bundled css and js"| TH["Write theme assets"]
-  TH -->|"move, on success only"| OUT["--out"]
+  TODO --> PREFLIGHT
+  REND -->|"html, asset references, outline"| PREFLIGHT["Read selected CSS; preflight reserved output paths"]
+  PREFLIGHT --> STAGE
+  STAGE["Stage in temp dir outside DIR"]
+  STAGE -->|"rendered pages"| PAGES["Write pages"]
+  PAGES -->|"bundled CSS and JS"| TH["Write bundled assets"]
+  TH -->|"optional exact-byte copy"| CUSTOM["Copy custom.css"]
+  CUSTOM -->|"referenced Markdown assets"| COPY["Copy assets"]
+  COPY -->|"move, on success only"| OUT["--out"]
 ```
 
-Five stages, strictly ordered. The structural fact that shapes everything else is the
+Build phases are strictly ordered. The structural fact that shapes everything else is the
 split between **planning** and **rendering**: every page's target path must be known
 before any page is rendered, because resolving a link needs the complete source-to-target
 map. Planning therefore reads every file up front — it needs each one's first heading for
@@ -58,8 +63,8 @@ graph LR
 | `plan` | ignore-aware walk, `--exclude` overrides, source-to-target mapping, collision detection, root-file resolution, titles, nav tree | `plan()` |
 | `render` | Markdown event stream to HTML; anchors, outline, code fences, Mermaid | `render_page()`, `render_part()` |
 | `links` | relative reference resolution, plus the POSIX path helpers it needs | `resolve()`, `fold()`, `normpath()`, `relpath()` |
-| `theme` | page shell, sidebar, outline rail; bundled CSS and JS | `shell()`, `ASSETS` |
-| `emit` | temp staging, asset copy, move into `--out` | `emit()` |
+| `theme` | page shell, sidebar, outline rail; bundled CSS and JS; optional custom stylesheet links | `shell()`, `STYLE_CSS`, `APP_JS` |
+| `emit` | CSS collision preflight, temp staging, custom stylesheet copy, referenced asset copy, move into `--out` | `emit()` |
 | `todo` | `--todo`: lifts open task items out of every page and appends them to the root TODO page | `collect()`, `render_page()` |
 
 Eight modules and a `lib.rs` that sequences them. Discovery lives in `plan` because a
@@ -76,6 +81,10 @@ is what needs them.
 - `NavNode` — either a page entry or a group carrying a label, an optional link, and children.
 - `Warnings` — an ordered sink; everything in it reaches stderr and nothing in it affects the exit code.
 
+The public `Args` and `Config` structs expose the optional stylesheet path as
+`stylesheet` (`Option<PathBuf>` and `Option<Utf8PathBuf>`, respectively). Code that
+constructs either struct with a literal must provide this field (`None` when unused).
+
 ## Rendering a page
 
 One pass over the Markdown event stream, with five interceptions:
@@ -87,6 +96,26 @@ One pass over the Markdown event stream, with five interceptions:
 5. **Task-list items** are emitted with a class on the `<li>` so the stylesheet can suppress the marker. This is determined by looking ahead, since the checkbox sits inside a paragraph in loose lists.
 
 `theme::shell` then wraps the result, taking the nav tree, the page's outline and its body.
+It retains its public signature and emits the base-only page shell. During output assembly,
+an internal helper adds a relative custom stylesheet link after the bundled stylesheet,
+adjusted for the page's output depth.
+
+## Custom stylesheet
+
+`--stylesheet` selects one local CSS file from outside or inside `DIR`; it is independent
+of Markdown discovery and ignore rules. The supplied path and its canonical path must be
+UTF-8, and the path must name a readable regular file. The file contents may be arbitrary
+bytes and are preserved unchanged.
+Once rendered destinations are known, a selected custom file is read once and output
+assembly checks the reserved `assets/custom.css` output path for
+casefolded exact or component-boundary ancestor/descendant conflicts with emitted pages or
+referenced Markdown assets. Unreferenced non-Markdown assets do not conflict. A conflict
+aborts the build before staging. Otherwise the custom stylesheet bytes are copied unchanged into the stage before publication. Read, write or collision
+failures leave `--out` absent or empty.
+
+The CSS is not parsed or rewritten. `url()` and `@import` dependencies are not copied or
+fetched; relative URLs resolve from the CSS file's output path (`assets/custom.css`), so authors must include or provide referenced resources in a way
+that keeps the output portable and usable offline.
 
 ## Collecting tasks
 
@@ -184,8 +213,9 @@ may sit inside `DIR`; discovery excludes it so a rebuild never ingests its own o
 | `percent-encoding` | href decoding and encoding |
 | `tempfile` | staging directory |
 
-No `build.rs`, no vendored JavaScript, no network access at build or run time. Theme CSS
-and JS are source files embedded with `include_str!`.
+No `build.rs`, no vendored JavaScript, and no network access by ohimark at build or run
+time. Bundled CSS and JS are embedded source files; an author's custom CSS
+may reference external resources, which ohimark does not inspect or fetch.
 
 Dropped with the mdBook-era design: the `mdbook`, `mdbook-mermaid`, `static-web-server`
 and `watchexec` binaries; `lol_html`, which existed only to rewrite links in already-built
@@ -196,7 +226,7 @@ HTML; and `command-group` with `signal-hook`, which supervised the child process
 
 - **Plan before render** — link resolution needs every target up front, so the page set cannot be discovered lazily. (R6)
 - **Resolve during render, not after** — the parser already yields links as events; a second parse of generated HTML would buy nothing and cost a dependency. (R6)
-- **Only referenced assets are copied** — the render pass is what discovers references, so the asset set falls out of rendering rather than needing its own traversal. (R5)
+- **Only referenced Markdown assets are copied** — the render pass discovers those references; selected custom CSS is an explicit input copied by `emit`, independent of discovery. (R5)
 - **Stage then move** — the only way a failed build can leave `--out` untouched. (R10.2)
 - **One SVG per diagram** — a second themed render would double the build's most expensive step to save a colour-rewriting pass over its output. (R8.2)
 - **Parallel where it is pure, ordered where it is observable** — the expensive phases are independent per page, and every order-sensitive step is deferred until after them, so builds stay easy to diff. (R1.6)
