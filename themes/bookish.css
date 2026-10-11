@@ -819,6 +819,8 @@ a.ohm-nav-label.ohm-nav-link--current:hover {
 }
 
 .ohm-diagram-graphic {
+  --ohm-font-sans: var(--basic-serif);
+  font-family: var(--ohm-font-sans);
   background: transparent;
   border: 0;
   border-radius: 0;

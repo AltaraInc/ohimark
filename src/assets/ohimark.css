@@ -418,6 +418,7 @@ img {
   overflow-x: auto;
   background: transparent;
   padding: 0;
+  font-family: var(--ohm-font-sans);
 }
 
 .ohm-diagram-graphic svg {
@@ -425,6 +426,20 @@ img {
   max-width: 100%;
   height: auto;
   margin: 0 auto;
+}
+
+.ohm-diagram-graphic svg text {
+  font-family: var(--ohm-font-sans);
+}
+
+.ohm-diagram-graphic svg foreignObject {
+  overflow: visible;
+}
+
+.ohm-diagram-graphic svg[aria-roledescription="stateDiagram"] foreignObject > div {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
 }
 
 /* Native Gantt SVGs carry classes rather than embedded colours. */
