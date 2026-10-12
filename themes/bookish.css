@@ -1,441 +1,27 @@
 /*
- * Bookish: warm paper, serif headings and red accents, adapted
+ * Bookish: warm paper, serif reading text and red accents, adapted
  * from ~/Documents/aku/misc/basic_math.html for ohimark's generated markup.
+ *
+ * The source speaks in three voices, kept here: serif for headings and
+ * prose, small tracked sans capitals for navigation and labels, and mono
+ * for code. Red marks a position (bars, dots, numerals, underlines) rather
+ * than colouring runs of text. Edges are square hairlines, and icons are
+ * 2px-stroke glyphs seated in bordered tiles.
  *
  * Usage: ohimark --out site --stylesheet themes/bookish.css docs
  */
 
-/* Shared presentation extracted from the original ohimark stylesheet. */
 :root {
-  --ohm-topbar-h: 56px;
+  --ohm-topbar-h: 0px;
   --ohm-sidebar-w: 272px;
   --ohm-outline-w: 220px;
   --ohm-rail-w: 56px;
   --ohm-gutter: 1.5rem;
   --ohm-wide-gutter: clamp(2rem, 5vw, 8rem);
   --ohm-content-max: 56rem;
-  --ohm-icon-size: 1.25rem;
-  --ohm-icon-stroke-width: 1.75;
-}
+  --ohm-icon-size: 1rem;
+  --ohm-icon-stroke-width: 2;
 
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
-}
-
-html {
-  -webkit-text-size-adjust: 100%;
-}
-
-body {
-  margin: 0;
-  min-width: 0;
-  overflow-x: hidden;
-  background: var(--ohm-bg);
-  color: var(--ohm-fg);
-  font-family: var(--ohm-font-sans);
-  font-size: 16px;
-  line-height: 1.65;
-}
-
-img {
-  max-width: 100%;
-  height: auto;
-}
-
-a {
-  color: var(--ohm-link);
-  text-decoration: none;
-}
-
-a:hover {
-  color: var(--ohm-link-hover);
-  text-decoration: underline;
-}
-
-:focus-visible {
-  outline: 2px solid var(--ohm-accent);
-  outline-offset: 2px;
-}
-
-.ohm-icon-button,
-.ohm-panel-button {
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--ohm-fg);
-}
-
-.ohm-icon-button:hover,
-.ohm-panel-button:hover {
-  background: var(--ohm-code-bg);
-}
-
-.ohm-copy-button,
-.ohm-diagram-actions .ohm-icon-button {
-  background: var(--ohm-bg);
-  border: 1px solid var(--ohm-border);
-}
-
-.ohm-copy-button:hover,
-.ohm-diagram-actions .ohm-icon-button:hover {
-  border-color: var(--ohm-muted);
-}
-
-.ohm-topbar-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  margin-left: auto;
-  padding: 0 var(--ohm-gutter);
-}
-
-.ohm-sidebar {
-  padding: 1.5rem var(--ohm-gutter);
-  background: var(--ohm-sidebar-bg);
-  border-right: 1px solid var(--ohm-border);
-}
-
-.ohm-sidebar-header {
-  justify-content: flex-end;
-}
-
-.ohm-sidebar-header .ohm-nav-link {
-  flex: 1 1 auto;
-  min-width: 0;
-  margin: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ohm-main {
-  padding: 2.5rem var(--ohm-gutter) 4rem;
-}
-
-.ohm-content {
-  max-width: var(--ohm-content-max);
-}
-
-.ohm-outline {
-  padding: 1.5rem var(--ohm-gutter);
-  background: var(--ohm-outline-bg);
-}
-
-.ohm-outline-title {
-  margin: 0 0 0.5rem;
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--ohm-muted);
-}
-
-.ohm-nav-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.ohm-nav-list .ohm-nav-list {
-  margin: 0.25rem 0 0 0.6rem;
-  padding-left: 0.55rem;
-  border-left: 1px solid var(--ohm-border);
-}
-
-.ohm-nav-item {
-  margin: 0;
-}
-
-.ohm-nav-link {
-  display: block;
-  padding: 0.3rem 0.5rem;
-  border-radius: 6px;
-  color: var(--ohm-fg);
-  font-size: 0.9rem;
-  line-height: 1.4;
-}
-
-.ohm-nav-link:hover {
-  background: var(--ohm-code-bg);
-  color: var(--ohm-fg);
-  text-decoration: none;
-}
-
-.ohm-nav-link--current {
-  color: var(--ohm-accent);
-  font-weight: 600;
-  background: var(--ohm-code-bg);
-}
-
-.ohm-nav-group {
-  margin-top: 0.75rem;
-}
-
-.ohm-nav-label {
-  display: block;
-  padding: 0.3rem 0.5rem;
-  color: var(--ohm-muted);
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-a.ohm-nav-label {
-  border-radius: 6px;
-}
-
-a.ohm-nav-label:hover {
-  background: transparent;
-  color: var(--ohm-muted);
-  text-decoration: none;
-}
-
-.ohm-nav-summary {
-  display: flex;
-  align-items: center;
-  border-radius: 6px;
-  cursor: pointer;
-  list-style: none;
-}
-
-.ohm-nav-summary::-webkit-details-marker {
-  display: none;
-}
-
-.ohm-nav-summary::before {
-  content: "";
-  width: 0.4rem;
-  height: 0.4rem;
-  flex: none;
-  margin: 0 0.35rem 0 0.4rem;
-  border-right: 1.5px solid var(--ohm-muted);
-  border-bottom: 1.5px solid var(--ohm-muted);
-  transform: rotate(-45deg);
-  transition: transform 0.15s ease;
-}
-
-.ohm-nav-details[open] > .ohm-nav-summary::before {
-  transform: rotate(45deg);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .ohm-nav-summary::before {
-    transition: none;
-  }
-}
-
-.ohm-nav-summary > .ohm-nav-label {
-  flex: 1;
-  min-width: 0;
-}
-
-.ohm-nav-summary:hover {
-  background: var(--ohm-code-bg);
-}
-
-.ohm-nav-summary:focus-visible {
-  outline: 2px solid var(--ohm-accent);
-  outline-offset: 1px;
-}
-
-.ohm-outline-title {
-  margin: 0 0 0.5rem;
-}
-
-.ohm-outline-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  border-left: 1px solid var(--ohm-border);
-}
-
-.ohm-outline-item a {
-  display: block;
-  padding: 0.2rem 0 0.2rem 0.75rem;
-  margin-left: -1px;
-  border-left: 1px solid transparent;
-  color: var(--ohm-muted);
-  font-size: 0.85rem;
-  line-height: 1.4;
-}
-
-.ohm-outline-item a:hover {
-  color: var(--ohm-fg);
-  text-decoration: none;
-}
-
-.ohm-outline-item--active > a {
-  border-left-color: var(--ohm-accent);
-  color: var(--ohm-accent);
-  font-weight: 600;
-}
-
-.ohm-outline-item--h3 a { padding-left: 1.5rem; }
-.ohm-outline-item--h4 a { padding-left: 2.25rem; }
-.ohm-outline-item--h5 a { padding-left: 3rem; }
-.ohm-outline-item--h6 a { padding-left: 3.75rem; }
-
-.ohm-content h1,
-.ohm-content h2,
-.ohm-content h3,
-.ohm-content h4,
-.ohm-content h5,
-.ohm-content h6 {
-  font-weight: 650;
-  line-height: 1.3;
-  scroll-margin-top: calc(var(--ohm-topbar-h) + 16px);
-}
-
-.ohm-content h1 {
-  margin: 0 0 1rem;
-  padding-bottom: 0.5rem;
-  border-bottom: 1px solid var(--ohm-border);
-  font-size: 2rem;
-}
-
-.ohm-content h2 {
-  margin: 2.5rem 0 1rem;
-  padding-bottom: 0.3rem;
-  border-bottom: 1px solid var(--ohm-border);
-  font-size: 1.5rem;
-}
-
-.ohm-content h3 { margin: 2rem 0 0.75rem; font-size: 1.25rem; }
-.ohm-content h4 { margin: 1.5rem 0 0.5rem; font-size: 1.05rem; }
-
-.ohm-content h5,
-.ohm-content h6 {
-  margin: 1.25rem 0 0.5rem;
-  color: var(--ohm-muted);
-  font-size: 0.95rem;
-}
-
-.ohm-content p { margin: 0 0 1rem; }
-
-.ohm-content ul,
-.ohm-content ol {
-  margin: 0 0 1rem;
-  padding-left: 1.5rem;
-}
-
-.ohm-content li + li { margin-top: 0.25rem; }
-
-.ohm-content li > ul,
-.ohm-content li > ol {
-  margin: 0.25rem 0 0;
-}
-
-.ohm-content li.ohm-task { list-style: none; }
-
-.ohm-content li.ohm-task input[type="checkbox"] {
-  width: 1rem;
-  height: 1rem;
-  margin: 0 0.4rem 0 -1.4rem;
-  vertical-align: -0.1em;
-  accent-color: var(--ohm-accent);
-}
-
-.ohm-content blockquote {
-  margin: 0 0 1rem;
-  padding: 0.5rem 1rem;
-  border-left: 3px solid var(--ohm-blockquote-border);
-  color: var(--ohm-muted);
-}
-
-.ohm-content blockquote > :last-child { margin-bottom: 0; }
-
-.ohm-content hr {
-  margin: 2rem 0;
-  border: 0;
-  border-top: 1px solid var(--ohm-border);
-}
-
-.ohm-content strong { font-weight: 700; }
-.ohm-content em { font-style: italic; }
-
-.ohm-content del {
-  color: var(--ohm-muted);
-  text-decoration: line-through;
-}
-
-.ohm-content img {
-  display: block;
-  max-width: 100%;
-  height: auto;
-  margin: 1rem 0;
-  border-radius: 6px;
-}
-
-.ohm-content table {
-  display: block;
-  width: 100%;
-  max-width: 100%;
-  overflow-x: auto;
-  margin: 0 0 1rem;
-  border-collapse: collapse;
-  font-size: 0.9rem;
-}
-
-.ohm-content table > * { min-width: max-content; }
-
-.ohm-content th,
-.ohm-content td {
-  padding: 0.5rem 0.75rem;
-  border: 1px solid var(--ohm-table-border);
-  text-align: left;
-}
-
-.ohm-content th {
-  background: var(--ohm-table-stripe);
-  font-weight: 700;
-}
-
-.ohm-content tbody tr:nth-child(even) {
-  background: var(--ohm-table-stripe);
-}
-
-.ohm-content code {
-  padding: 0.15em 0.4em;
-  border-radius: 4px;
-  background: var(--ohm-code-bg);
-  color: var(--ohm-code-fg);
-  font-family: var(--ohm-font-mono);
-  font-size: 0.875em;
-}
-
-.ohm-content pre {
-  position: relative;
-  max-width: 100%;
-  overflow-x: auto;
-  margin: 0 0 1rem;
-  padding: 1rem;
-  border-radius: 8px;
-  background: var(--ohm-code-bg);
-}
-
-.ohm-content pre code {
-  display: block;
-  padding: 0;
-  border-radius: 0;
-  background: transparent;
-  font-size: 0.85rem;
-  line-height: 1.6;
-  white-space: pre;
-}
-
-@media (max-width: 960px) {
-  .ohm-main {
-    padding: 2rem 1.25rem 3rem calc(var(--ohm-rail-w) + 1.25rem);
-  }
-}
-
-/* Existing Bookish palette and refinements follow. */
-
-:root {
-  --ohm-topbar-h: 0px;
   --ohm-font-sans:
     Inter, "SF Pro Display", -apple-system, BlinkMacSystemFont,
     "Helvetica Neue", Helvetica, Arial, sans-serif;
@@ -445,6 +31,11 @@ a.ohm-nav-label:hover {
   --basic-serif:
     "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino,
     Georgia, serif;
+
+  /* Glyphs drawn in CSS use the same 24-unit, round-capped strokes as the
+     inline icons. */
+  --basic-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  --basic-tick: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E");
 
   /* Source palette: warm paper and brick red. */
   --basic-light-bg: #faf6f0;
@@ -480,7 +71,7 @@ a.ohm-nav-label:hover {
   --basic-dark-accent-hover: #ff6b6b;
   --basic-dark-accent-tint: #2a1c1c;
   --basic-dark-selection: #3a2323;
-  --basic-dark-accent-fg: #161412;
+  --basic-dark-accent-fg: #ffffff;
   --basic-dark-shadow: rgba(0, 0, 0, 0.4);
   --basic-dark-backdrop: rgba(0, 0, 0, 0.55);
   --basic-dark-error: #ff6b6b;
@@ -572,36 +163,38 @@ a.ohm-nav-label:hover {
   --ohm-border: var(--basic-border);
   --ohm-accent: var(--basic-accent);
   --ohm-accent-fg: var(--basic-accent-fg);
-  --ohm-link: var(--basic-accent);
+  --ohm-link: var(--basic-fg);
   --ohm-link-hover: var(--basic-accent-hover);
   --ohm-code-bg: var(--basic-surface-alt);
   --ohm-code-fg: var(--basic-fg);
   --ohm-topbar-bg: var(--basic-surface);
   --ohm-sidebar-bg: var(--basic-bg);
   --ohm-outline-bg: var(--basic-bg);
-  --ohm-blockquote-border: var(--basic-accent);
+  --ohm-blockquote-border: color-mix(in srgb, var(--basic-accent) 35%, transparent);
   --ohm-table-border: var(--basic-border);
   --ohm-table-stripe: var(--basic-surface-raised);
   --ohm-shadow: var(--basic-shadow);
   --ohm-backdrop: var(--basic-backdrop);
+
+  /* Diagram shapes are cards: white on paper behind a strong hairline. */
   --ohm-dg-canvas: var(--ohm-bg);
-  --ohm-dg-surface: var(--ohm-code-bg);
-  --ohm-dg-surface-alt: color-mix(in srgb, var(--ohm-code-bg), var(--ohm-accent) 12%);
+  --ohm-dg-surface: var(--basic-surface);
+  --ohm-dg-surface-alt: var(--basic-surface-alt);
   --ohm-dg-surface-muted: var(--ohm-table-stripe);
   --ohm-dg-text: var(--ohm-fg);
   --ohm-dg-subtle-text: var(--ohm-muted);
-  --ohm-dg-border: var(--ohm-border);
+  --ohm-dg-border: var(--basic-border-strong);
   --ohm-dg-line: var(--ohm-muted);
   --ohm-dg-edge-label-background: var(--ohm-bg);
-  --ohm-dg-cluster-background: color-mix(in srgb, var(--ohm-bg), var(--ohm-accent) 6%);
-  --ohm-dg-cluster-border: var(--ohm-border);
-  --ohm-dg-note-background: var(--ohm-code-bg);
-  --ohm-dg-note-border: var(--ohm-blockquote-border);
-  --ohm-dg-note-text: var(--ohm-fg);
-  --ohm-dg-actor-background: var(--ohm-code-bg);
-  --ohm-dg-actor-border: var(--ohm-border);
+  --ohm-dg-cluster-background: var(--basic-surface-alt);
+  --ohm-dg-cluster-border: var(--basic-border-strong);
+  --ohm-dg-note-background: var(--basic-accent-tint);
+  --ohm-dg-note-border: var(--basic-border-strong);
+  --ohm-dg-note-text: var(--basic-accent-hover);
+  --ohm-dg-actor-background: var(--basic-surface);
+  --ohm-dg-actor-border: var(--basic-border-strong);
   --ohm-dg-actor-text: var(--ohm-fg);
-  --ohm-dg-activation-background: color-mix(in srgb, var(--ohm-code-bg), var(--ohm-accent) 8%);
+  --ohm-dg-activation-background: var(--basic-surface-raised);
   --ohm-dg-activation-border: var(--ohm-muted);
   --ohm-dg-error: var(--basic-error);
   --ohm-dg-warning: var(--basic-warning);
@@ -620,11 +213,92 @@ a.ohm-nav-label:hover {
   --ohm-dg-series-11: color-mix(in srgb, var(--ohm-accent) 30%, #0ca678 70%);
 }
 
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--basic-border-strong) transparent;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-width: 0;
+  overflow-x: hidden;
+  background: var(--ohm-bg);
+  color: var(--ohm-fg);
+  font-family: var(--ohm-font-sans);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ohm-accent);
+  outline-offset: 2px;
+}
+
 ::selection {
   background: var(--basic-selection);
   color: var(--basic-fg);
 }
 
+/* Icons: a small 2px-stroke glyph seated in a square hairline tile. */
+
+.ohm-icon-button,
+.ohm-panel-button {
+  border: 1px solid var(--basic-border);
+  border-radius: 0;
+  background: var(--basic-surface-alt);
+  color: var(--basic-fg);
+  transition: color 0.15s, background-color 0.15s, border-color 0.15s;
+}
+
+/* Tiles inside the page are a step smaller and sit on the card surface. */
+.ohm-copy-button,
+.ohm-diagram-toggle,
+.ohm-diagram-fullscreen {
+  --ohm-icon-size: 0.875rem;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-color: var(--basic-border-strong);
+  background: var(--basic-surface);
+}
+
+.ohm-icon-button:hover,
+.ohm-panel-button:hover {
+  border-color: var(--basic-fg);
+}
+
+/* An engaged tile inverts to solid red, like a ticked box in the source.
+   ohimark.js exposes a finished copy only through its label. */
+.ohm-copy-button[aria-label="Copied"],
+.ohm-diagram-toggle[aria-expanded="true"],
+.ohm-diagram-fullscreen[aria-pressed="true"] {
+  border-color: var(--basic-accent);
+  background: var(--basic-accent);
+  color: var(--basic-accent-fg);
+}
+
+/* The topbar is reduced to the theme tile, parked at the foot of the rail. */
 .ohm-topbar {
   position: fixed;
   top: auto;
@@ -646,31 +320,216 @@ a.ohm-nav-label:hover {
   padding: 0;
 }
 
-#ohm-theme-button {
-  color: var(--basic-muted);
-  background: var(--basic-bg);
-  border-color: transparent;
-}
-
-#ohm-theme-button:hover {
-  color: var(--basic-accent);
-  background: var(--basic-accent-tint);
-}
-
 #ohm-theme-button[hidden] {
   display: none;
 }
 
 .ohm-sidebar {
-  padding-bottom: 4.5rem;
+  padding: 1.5rem var(--ohm-gutter) 4.5rem;
+  background: var(--ohm-sidebar-bg);
+  border-right: 1px solid var(--ohm-border);
 }
 
-.ohm-sidebar-header > .ohm-nav-link {
-  font-weight: 700;
+.ohm-outline {
+  padding: 1.5rem var(--ohm-gutter);
+  background: var(--ohm-outline-bg);
 }
+
+.ohm-panel-header {
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--ohm-border);
+}
+
+.ohm-main {
+  padding: 2.5rem var(--ohm-gutter) 4rem;
+}
+
+/* Navigation speaks sans: quiet links under small tracked capitals. */
+
+.ohm-nav-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ohm-nav-list .ohm-nav-list {
+  margin: 0.125rem 0 0 calc(0.75rem + 2px);
+  border-left: 1px solid var(--basic-border-strong);
+}
+
+.ohm-nav-item {
+  margin: 0;
+}
+
+.ohm-nav-group {
+  margin-top: 0.75rem;
+}
+
+.ohm-nav-link,
+.ohm-nav-label {
+  display: block;
+  padding: 0.3rem 0.5rem 0.3rem 0.75rem;
+  border-left: 2px solid transparent;
+  background-clip: padding-box;
+  transition: color 0.15s, background-color 0.15s, border-color 0.15s;
+}
+
+/* Nested rows sit on the rail so the current-page bar replaces it. */
+.ohm-nav-list .ohm-nav-list .ohm-nav-link,
+.ohm-nav-list .ohm-nav-list .ohm-nav-label {
+  margin-left: -1px;
+}
+
+.ohm-nav-link {
+  color: var(--basic-muted);
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+.ohm-nav-label,
+.ohm-outline-title {
+  color: var(--basic-faint);
+  font-weight: 600;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.ohm-nav-label {
+  font-size: 0.6875rem;
+  letter-spacing: 0.14em;
+}
+
+.ohm-nav-link:hover {
+  background-color: var(--basic-surface-alt);
+  color: var(--basic-fg);
+}
+
+.ohm-nav-link--current,
+.ohm-nav-link--current:hover {
+  border-left-color: var(--basic-accent);
+  background-color: transparent;
+  color: var(--basic-fg);
+  font-weight: 600;
+}
+
+.ohm-nav-summary {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  list-style: none;
+  transition: background-color 0.15s;
+}
+
+.ohm-nav-summary::-webkit-details-marker {
+  display: none;
+}
+
+.ohm-nav-summary > .ohm-nav-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.ohm-nav-summary:hover {
+  background-color: var(--basic-surface-alt);
+}
+
+.ohm-nav-summary:focus-visible {
+  outline: 2px solid var(--ohm-accent);
+  outline-offset: 1px;
+}
+
+/* The disclosure chevron is a mask, so it takes the theme's ink like the
+   inline icons. It points down when closed and flips when open. */
+.ohm-nav-summary::after {
+  content: "";
+  flex: none;
+  width: 0.875rem;
+  height: 0.875rem;
+  margin: 0 0.5rem 0 0.25rem;
+  background-color: var(--basic-faint);
+  -webkit-mask: var(--basic-chevron) center / contain no-repeat;
+  mask: var(--basic-chevron) center / contain no-repeat;
+  transition: transform 0.2s ease;
+}
+
+.ohm-nav-details[open] > .ohm-nav-summary::after {
+  transform: rotate(180deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ohm-nav-summary::after {
+    transition: none;
+  }
+}
+
+/* The site title is the masthead: a red dot and tracked capitals. */
+.ohm-sidebar-header > .ohm-nav-link,
+.ohm-sidebar-header > .ohm-nav-link:hover {
+  border-left-color: transparent;
+  background-color: transparent;
+  color: var(--basic-fg);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.ohm-sidebar-header > .ohm-nav-link::before {
+  content: "";
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-right: 0.625rem;
+  border-radius: 50%;
+  background: var(--basic-accent);
+}
+
+.ohm-outline-title {
+  margin: 0;
+  font-size: 0.625rem;
+  letter-spacing: 0.2em;
+}
+
+.ohm-outline-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-left: 1px solid var(--basic-border-strong);
+}
+
+.ohm-outline-item a {
+  display: block;
+  margin-left: -1px;
+  padding: 0.25rem 0 0.25rem 0.75rem;
+  border-left: 2px solid transparent;
+  color: var(--basic-muted);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.ohm-outline-item a:hover {
+  color: var(--basic-fg);
+}
+
+.ohm-outline-item--active > a {
+  border-left-color: var(--basic-accent);
+  color: var(--basic-fg);
+  font-weight: 600;
+}
+
+.ohm-outline-item--h3 a { padding-left: 1.5rem; }
+.ohm-outline-item--h4 a { padding-left: 2.25rem; }
+.ohm-outline-item--h5 a { padding-left: 3rem; }
+.ohm-outline-item--h6 a { padding-left: 3.75rem; }
+
+/* Prose speaks serif. Headings are bold, tight and tracked in. */
 
 .ohm-content {
   font-family: var(--basic-serif);
+  font-size: 1.0625rem;
+  line-height: 1.6;
 }
 
 .ohm-content h1,
@@ -679,139 +538,279 @@ a.ohm-nav-label:hover {
 .ohm-content h4,
 .ohm-content h5,
 .ohm-content h6 {
-  font-family: var(--basic-serif);
-  font-weight: 700;
+  scroll-margin-top: calc(var(--ohm-topbar-h) + 16px);
+  text-wrap: balance;
 }
 
 .ohm-content h1 {
-  font-size: clamp(2.5rem, 5vw, 3.75rem);
-  line-height: 0.98;
-  letter-spacing: -0.03em;
-  padding: 0 0 0 0.9rem;
+  margin: 0 0 1.5rem;
+  padding-left: 1rem;
   border-left: 3px solid var(--basic-accent);
-  border-bottom: 0;
+  font-size: clamp(2rem, 4vw, 2.5rem);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.03em;
   overflow-wrap: anywhere;
 }
 
-.ohm-content h2 {
-  font-size: clamp(1.5rem, 3vw, 2rem);
-  line-height: 1.15;
+/* Emphasis in a title is the source's second line: muted, lighter italic. */
+.ohm-content h1 em {
+  color: var(--basic-muted);
+  font-weight: 400;
   letter-spacing: -0.02em;
-  padding-bottom: 0.45rem;
-  border-bottom-color: var(--basic-border-strong);
+}
+
+/* The paragraph under the title is the lede. */
+.ohm-content > h1 + p {
+  font-size: clamp(1.125rem, 2vw, 1.25rem);
+  line-height: 1.45;
+}
+
+/* Sections open under a hairline, as the source's do. */
+.ohm-content h2 {
+  margin: 2.25rem 0 1rem;
+  padding-top: 1.75rem;
+  border-top: 1px solid var(--ohm-border);
+  font-size: clamp(1.375rem, 2.6vw, 1.75rem);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.ohm-content > h2:first-child,
+.ohm-content h1 + h2 {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
 }
 
 .ohm-content h3 {
-  font-size: 1.4rem;
-  line-height: 1.2;
-  letter-spacing: -0.015em;
+  margin: 2rem 0 0.75rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
 }
 
-.ohm-nav-link,
-.ohm-outline-item a {
-  font-family: var(--basic-serif);
-  font-size: 1rem;
-  line-height: 1.45;
-  overflow-wrap: anywhere;
+.ohm-content h4 {
+  margin: 1.5rem 0 0.5rem;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
 }
 
-.ohm-nav-label,
-.ohm-outline-title {
+/* The lowest levels become the source's section labels: sans capitals led
+   by a short rule. */
+.ohm-content h5,
+.ohm-content h6 {
+  margin: 1.5rem 0 0.5rem;
+  color: var(--basic-faint);
   font-family: var(--ohm-font-sans);
-  font-size: 0.7rem;
-  letter-spacing: 0.1em;
-}
-
-.ohm-nav-link,
-a.ohm-nav-label {
-  border-left: 2px solid transparent;
-}
-
-.ohm-nav-link--current {
-  color: var(--basic-accent-hover);
-  background: transparent;
-  border-left-color: var(--basic-accent);
-}
-
-.ohm-nav-link:hover {
-  color: var(--basic-accent-hover);
-  background: var(--basic-surface-alt);
-  text-decoration: none;
-}
-
-.ohm-outline-item a:hover {
-  color: var(--basic-accent-hover);
-  text-decoration: none;
-}
-
-.ohm-outline-item--active > a,
-.ohm-outline-item--active > a:hover {
-  color: var(--basic-accent-hover);
-  border-left-color: var(--basic-accent);
-}
-
-.ohm-panel-button {
-  color: var(--basic-muted);
-  border-color: transparent;
-}
-
-.ohm-panel-button:hover {
-  color: var(--basic-accent);
-  background: var(--basic-accent-tint);
-}
-
-a.ohm-nav-label:hover {
-  color: var(--basic-muted);
-  background: transparent;
-}
-
-.ohm-nav-link--current:hover,
-a.ohm-nav-label.ohm-nav-link--current,
-a.ohm-nav-label.ohm-nav-link--current:hover {
-  color: var(--basic-accent-hover);
-  border-left-color: var(--basic-accent);
-  background: transparent;
-}
-
-.ohm-nav-link,
-.ohm-nav-label,
-.ohm-nav-summary,
-.ohm-icon-button,
-.ohm-panel-button,
-.ohm-copy-button,
-.ohm-diagram-actions .ohm-icon-button {
-  border-radius: 0;
-}
-
-.ohm-icon-button {
-  border: 1px solid var(--ohm-border);
-}
-
-.ohm-content blockquote {
-  padding: 0.75rem 1rem;
-  border-left-color: var(--basic-accent);
-  background: var(--basic-surface);
-}
-
-.ohm-content th {
-  font-family: var(--ohm-font-sans);
-  font-size: 0.75rem;
-  letter-spacing: 0.06em;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  background: var(--basic-surface-alt);
 }
 
-.ohm-content code,
-.ohm-content pre {
+.ohm-content h6 {
+  font-size: 0.625rem;
+}
+
+.ohm-content h5::before,
+.ohm-content h6::before {
+  content: "";
+  display: inline-block;
+  width: 1.5rem;
+  height: 1px;
+  margin-right: 0.5rem;
+  vertical-align: middle;
+  background: var(--basic-border-strong);
+}
+
+.ohm-content p { margin: 0 0 1rem; }
+
+.ohm-content ul,
+.ohm-content ol {
+  margin: 0 0 1rem;
+  padding-left: 1.5rem;
+}
+
+.ohm-content li + li { margin-top: 0.375rem; }
+
+.ohm-content li > ul,
+.ohm-content li > ol {
+  margin: 0.375rem 0 0;
+}
+
+/* Markers carry the red: small dots, and sans numerals for ordered steps. */
+.ohm-content ul > li::marker {
+  color: var(--basic-accent);
+  font-size: 0.75em;
+}
+
+.ohm-content ol > li::marker {
+  color: var(--basic-accent);
+  font-family: var(--ohm-font-sans);
+  font-size: 0.7em;
+  font-weight: 700;
+}
+
+/* The smaller numeral brings no gap of its own before the text. */
+.ohm-content ol > li {
+  padding-left: 0.375rem;
+}
+
+.ohm-content li.ohm-task { list-style: none; }
+
+/* Task boxes follow the source's tick tiles: a hairline square that turns
+   solid red around a white tick. */
+.ohm-content li.ohm-task input[type="checkbox"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 1rem;
+  height: 1rem;
+  margin: 0 0.5rem 0 -1.5rem;
+  border: 1px solid var(--basic-border-strong);
   border-radius: 0;
+  background: var(--basic-surface) center / 0.625rem no-repeat;
+  vertical-align: -0.15em;
 }
 
-.ohm-content pre {
-  border: 1px solid var(--ohm-border);
+.ohm-content li.ohm-task input[type="checkbox"]:checked {
+  border-color: var(--basic-accent);
+  background-color: var(--basic-accent);
+  background-image: var(--basic-tick);
+}
+
+/* Quotations are an aside in the reading voice: muted italic behind a faint
+   red rule. */
+.ohm-content blockquote {
+  margin: 0 0 1rem;
+  padding: 0.125rem 0 0.125rem 0.75rem;
+  border-left: 2px solid var(--ohm-blockquote-border);
+  color: var(--basic-muted);
+  font-style: italic;
+}
+
+.ohm-content blockquote > :last-child { margin-bottom: 0; }
+
+.ohm-content hr {
+  margin: 2.5rem 0;
+  border: 0;
+  border-top: 1px solid var(--ohm-border);
+}
+
+.ohm-content strong { font-weight: 700; }
+.ohm-content em { font-style: italic; }
+
+.ohm-content del {
+  color: var(--basic-faint);
+  text-decoration: line-through;
+}
+
+/* Links stay in ink; the red is the underline. */
+.ohm-content a {
+  color: var(--ohm-link);
+  text-decoration: underline;
+  text-decoration-color: var(--basic-accent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+  transition: color 0.15s;
+}
+
+.ohm-content a:hover {
+  color: var(--ohm-link-hover);
+  text-decoration-thickness: 2px;
 }
 
 .ohm-content img {
-  border-radius: 0;
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 1rem 0;
+}
+
+/* Tables are ruled like a printed page: hairlines under rows and label
+   heads, with no fills. */
+.ohm-content table {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 0 0 1.5rem;
+  border-collapse: collapse;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+}
+
+.ohm-content table > * { min-width: max-content; }
+
+.ohm-content th,
+.ohm-content td {
+  padding: 0.625rem 0.75rem;
+  border-bottom: 1px solid var(--ohm-table-border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.ohm-content th:first-child,
+.ohm-content td:first-child {
+  padding-left: 0;
+}
+
+.ohm-content th {
+  border-bottom-color: var(--basic-border-strong);
+  color: var(--basic-faint);
+  font-family: var(--ohm-font-sans);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  vertical-align: bottom;
+}
+
+/* Code speaks mono, boxed in a hairline like the source's tags. */
+.ohm-content code {
+  padding: 0.1em 0.35em;
+  border: 1px solid var(--ohm-border);
+  background: var(--ohm-code-bg);
+  color: var(--ohm-code-fg);
+  font-family: var(--ohm-font-mono);
+  font-size: 0.8em;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.ohm-content pre {
+  position: relative;
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 0 0 1.25rem;
+  padding: 0.875rem 1rem;
+  border: 1px solid var(--ohm-border);
+  background: var(--ohm-code-bg);
+}
+
+.ohm-content pre code {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  white-space: pre;
+}
+
+/* Keys are the source's inverted chips: paper on ink. */
+.ohm-content kbd {
+  padding: 0.1em 0.4em;
+  background: var(--basic-fg);
+  color: var(--basic-bg);
+  font-family: var(--ohm-font-mono);
+  font-size: 0.75em;
 }
 
 .ohm-diagram {
@@ -829,28 +828,16 @@ a.ohm-nav-label.ohm-nav-link--current:hover {
 
 .ohm-diagram-graphic svg .node rect.label-container,
 .ohm-diagram-graphic svg .cluster rect {
-  rx: 6px;
-  ry: 6px;
+  rx: 0;
+  ry: 0;
 }
 
 .ohm-diagram-actions {
-  position: static;
-  justify-content: flex-end;
-  margin-top: 0.5rem;
+  gap: 0.375rem;
 }
 
-.ohm-diagram-actions .ohm-icon-button {
-  color: var(--basic-muted);
-  background: transparent;
-  border: 0;
-}
-
-.ohm-diagram-actions .ohm-icon-button:hover {
-  color: var(--basic-accent);
-  background: var(--basic-accent-tint);
-}
-
-.ohm-diagram:fullscreen .ohm-diagram-actions {
-  position: absolute;
-  margin: 0;
+@media (max-width: 960px) {
+  .ohm-main {
+    padding: 2rem 1.25rem 3rem calc(var(--ohm-rail-w) + 1.25rem);
+  }
 }
