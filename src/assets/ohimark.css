@@ -314,6 +314,19 @@ img {
   min-width: 0;
 }
 
+.ohm-content .ohm-page-filename {
+  margin: 0.25rem 0 1.5rem;
+  color: var(--ohm-muted);
+  font-size: 0.875rem;
+  font-weight: normal;
+  font-style: normal;
+  font-family: var(--ohm-font-sans);
+  line-height: 1.4;
+  letter-spacing: normal;
+  text-transform: none;
+  overflow-wrap: anywhere;
+}
+
 .ohm-outline {
   flex: 0 0 var(--ohm-outline-w);
   width: var(--ohm-outline-w);
@@ -366,6 +379,10 @@ img {
 .ohm-content h5,
 .ohm-content h6 {
   scroll-margin-top: calc(var(--ohm-topbar-h) + 16px);
+}
+
+.ohm-content h1:has(+ .ohm-page-filename) {
+  margin-bottom: 0.25rem;
 }
 
 .ohm-content li.ohm-task {

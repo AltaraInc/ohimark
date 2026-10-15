@@ -561,9 +561,14 @@ a {
 }
 
 /* The paragraph under the title is the lede. */
-.ohm-content > h1 + p {
+.ohm-content > h1 + p,
+.ohm-content > h1 + .ohm-page-filename + p {
   font-size: clamp(1.125rem, 2vw, 1.25rem);
   line-height: 1.45;
+}
+
+.ohm-content h1 + .ohm-page-filename {
+  padding-left: calc(1rem + 3px);
 }
 
 /* Sections open under a hairline, as the source's do. */
@@ -578,7 +583,9 @@ a {
 }
 
 .ohm-content > h2:first-child,
-.ohm-content h1 + h2 {
+.ohm-content > .ohm-page-filename:first-child + h2,
+.ohm-content h1 + h2,
+.ohm-content h1 + .ohm-page-filename + h2 {
   margin-top: 0;
   padding-top: 0;
   border-top: 0;

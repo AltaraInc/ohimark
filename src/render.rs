@@ -15,7 +15,7 @@
 use std::collections::HashMap;
 
 use camino::Utf8Path;
-use pulldown_cmark::{CodeBlockKind, CowStr, Event, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{CodeBlockKind, CowStr, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 
 use merman::svg::{
     CssOverridePolicy, HostTheme, HostThemeAppearance, Presentation, PresentationRenderPolicy,
@@ -57,11 +57,13 @@ pub fn parser_options() -> Options {
 
 /// The ids that must stay unique across one page: heading anchors (R6.8) and Mermaid
 /// diagram ids. Fresh for every page, so identical ids on different pages are never a
-/// conflict; shared between the parts of a page rendered separately (R12.4).
+/// conflict; shared between the parts of a page rendered separately (R12.4). Also
+/// records whether the page's filename subtitle has already been emitted.
 #[derive(Debug, Default)]
 pub struct PageIds {
     headings: HashMap<String, u32>,
     diagrams: usize,
+    filename_emitted: bool,
 }
 
 /// Render one page's Markdown to body HTML. Never fails: every problem is a warning
@@ -73,7 +75,7 @@ pub fn render_page(page: &Page, markdown: &str, site: &Site, diagrams: &Diagrams
 
 /// Render one separately parsed part of a page, so a construct left open at the end of
 /// one part cannot swallow the next (R12.4). `ids` carries over from the page's earlier
-/// parts, keeping its anchors and diagram ids unique across all of them.
+/// parts, keeping its anchors and diagram ids unique and emitting its filename once.
 #[must_use]
 pub fn render_part(
     page: &Page,
@@ -87,14 +89,36 @@ pub fn render_part(
     let mut outline: Vec<OutlineEntry> = Vec::new();
     let heading_ids = &mut ids.headings;
     let mermaid_index = &mut ids.diagrams;
+    let filename_emitted = &mut ids.filename_emitted;
+
+    let source_filename = page
+        .source
+        .as_path()
+        .file_name()
+        .unwrap_or(page.source.as_path().as_str());
+    let filename_html = format!(
+        "<div class=\"ohm-page-filename\">{}</div>\n",
+        escape_html(source_filename)
+    );
 
     let source_dir = page.source.dir();
     let target_dir = page.target.dir();
 
     let mut events_iter = Parser::new_ext(markdown, parser_options()).peekable();
     let mut out_events: Vec<Event> = Vec::new();
+    let mut containers: Vec<TagEnd> = Vec::new();
 
     while let Some(event) = events_iter.next() {
+        // A title must be outside every enclosing Markdown container. Headings and
+        // code blocks consume their own end events below, so neither enters this stack.
+        match &event {
+            Event::Start(Tag::Heading { .. } | Tag::CodeBlock(_)) => {}
+            Event::Start(tag) => containers.push(tag.to_end()),
+            Event::End(_) => {
+                containers.pop();
+            }
+            _ => {}
+        }
         match event {
             // Interception 2: headings (R6.8, R8.3). Buffered separately from the main
             // loop, so its contents are routed through `resolve_event` explicitly rather
@@ -161,6 +185,10 @@ pub fn render_part(
                     "<h{level_num} id=\"{}\">{inline_html}</h{level_num}>\n",
                     escape_html(&anchor)
                 ))));
+                if !*filename_emitted && level == HeadingLevel::H1 && containers.is_empty() {
+                    out_events.push(Event::Html(CowStr::from(filename_html.clone())));
+                    *filename_emitted = true;
+                }
                 outline.push(OutlineEntry {
                     level: level_num,
                     id: anchor,
@@ -227,6 +255,9 @@ pub fn render_part(
                 } else {
                     None
                 };
+                if paragraph.is_some() {
+                    containers.push(TagEnd::Paragraph);
+                }
                 if matches!(events_iter.peek(), Some(Event::TaskListMarker(_))) {
                     out_events.push(Event::Html(CowStr::from(r#"<li class="ohm-task">"#)));
                 } else {
@@ -238,6 +269,13 @@ pub fn render_part(
             // passes straight through to `pulldown_cmark::html::push_html`.
             other => out_events.push(other),
         }
+    }
+
+    // The first part without a top-level H1 still owns the subtitle. In particular,
+    // a later generated TODO section must not claim it as its own title subtitle.
+    if !*filename_emitted {
+        out_events.insert(0, Event::Html(CowStr::from(filename_html)));
+        *filename_emitted = true;
     }
 
     let mut html = String::new();
@@ -993,6 +1031,94 @@ mod tests {
     }
 
     #[test]
+    fn filename_subtitle_follows_title_with_inline_markup_and_escaped_basename() {
+        let diagrams = Diagrams::new();
+        let site = Site::default();
+        let page = Page {
+            source: SourceRel::new("docs/Notes & <draft>.MD"),
+            ..page()
+        };
+        let rendered = render_page(
+            &page,
+            "# A *small* `title` [link](https://example.com)\n\nBody.\n",
+            &site,
+            &diagrams,
+        );
+
+        assert_eq!(
+            rendered.html,
+            "<h1 id=\"a-small-title-link\">A <em>small</em> <code>title</code> <a href=\"https://example.com\">link</a></h1>\n\
+             <div class=\"ohm-page-filename\">Notes &amp; &lt;draft&gt;.MD</div>\n\
+             <p>Body.</p>\n"
+        );
+        assert_eq!(rendered.outline.len(), 1);
+        assert_eq!(rendered.outline[0].id, "a-small-title-link");
+        assert_eq!(
+            rendered.outline[0].text,
+            "A <em>small</em> <code>title</code> link"
+        );
+        assert!(rendered.warnings.is_empty());
+    }
+
+    #[test]
+    fn filename_subtitle_skips_nested_h1_and_only_uses_first_top_level_h1() {
+        let diagrams = Diagrams::new();
+        let site = Site::default();
+        let rendered = render_page(
+            &page(),
+            "> # Quoted\n\n\
+             - # Listed\n\n\
+             - [ ] Loose task\n\n\
+               Another paragraph.\n\n\
+             [^note]:\n    # Footnote\n\n\
+             Reference[^note].\n\n\
+             ```text\n# Code\n```\n\n\
+             # Main\n\n\
+             # Later\n",
+            &site,
+            &diagrams,
+        );
+
+        assert!(rendered.html.contains(
+            "<h1 id=\"main\">Main</h1>\n<div class=\"ohm-page-filename\">page.md</div>\n"
+        ));
+        assert_eq!(rendered.html.matches("ohm-page-filename").count(), 1);
+        for id in ["quoted", "listed", "footnote", "main", "later"] {
+            assert!(rendered.outline.iter().any(|entry| entry.id == id));
+        }
+    }
+
+    #[test]
+    fn filename_subtitle_falls_back_before_body_once_across_parts() {
+        let diagrams = Diagrams::new();
+        let site = Site::default();
+        let mut ids = PageIds::default();
+        let first = render_part(
+            &page(),
+            "<h1>Raw title</h1>\n\nBody.\n",
+            &site,
+            &diagrams,
+            &mut ids,
+        );
+        let second = render_part(
+            &page(),
+            "# Collected Tasks\n\n- [ ] Later task\n",
+            &site,
+            &diagrams,
+            &mut ids,
+        );
+
+        assert_eq!(
+            first.html,
+            "<div class=\"ohm-page-filename\">page.md</div>\n\
+             <h1>Raw title</h1>\n<p>Body.</p>\n"
+        );
+        assert!(first.outline.is_empty());
+        assert!(!second.html.contains("ohm-page-filename"));
+        assert_eq!(second.outline[0].id, "collected-tasks");
+    }
+
+    #[test]
     fn r6_1_heading_link_to_another_page_is_rewritten() {
         let diagrams = Diagrams::new();
         let pages = vec![Page {
@@ -1116,7 +1242,7 @@ mod tests {
         let md = "```\nplain\n```\n";
         let rendered = render_page(&page(), md, &site, &diagrams);
         assert!(rendered.html.contains("<pre><code>plain"));
-        assert!(!rendered.html.contains("class="));
+        assert!(!rendered.html.contains("<pre><code class="));
     }
 
     #[test]
