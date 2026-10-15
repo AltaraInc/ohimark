@@ -15,8 +15,8 @@ shape of the code that produces it.
 flowchart TD
   ARGS["argv"] -->|"parse and validate --theme and --stylesheet"| CFG["Config"]
   CFG -->|"root directory, excludes"| WALK["Discover sources"]
-  WALK -->|"ordered source set"| READ["Read files and extract titles<br/>(parallel)"]
-  READ -->|"titles and retained bytes"| MAP["Build source-to-target map,<br/>detect collisions, build nav tree"]
+  WALK -->|"ordered source set"| READ["Read files, extract titles and source times<br/>(parallel)"]
+  READ -->|"titles, source times and retained bytes"| MAP["Build source-to-target map,<br/>detect collisions, build nav tree"]
   MAP -->|"Site: pages, map, nav"| REND["Render pages<br/>(parallel)"]
   REND -->|"with --todo"| TODO["Collect open tasks (parallel),<br/>re-render the TODO page"]
   TODO --> PREFLIGHT
@@ -77,7 +77,7 @@ is what needs them.
 
 - `SourceRel` — a `DIR`-relative POSIX path to an input file.
 - `TargetPath` — an output-relative path, ending in `.html` for a page.
-- `Page { source, target, title }` — one rendered document.
+- `Page { source, target, title, times }` — one rendered document. `PageTimes { created, modified }` holds optional source-file creation and modification times; unsupported filesystem timestamps remain unknown, and synthetic pages have neither time.
 - `Site { pages, by_source, nav, todo }` — `by_source` is the casefolded map `links` resolves against; `todo` is the index of the root TODO page when `--todo` is set and there is one (a root TODO file, or a synthetic page because some page has an open task).
 - `NavNode` — either a page entry or a group carrying a label, an optional link, and children.
 - `Warnings` — an ordered sink; everything in it reaches stderr and nothing in it affects the exit code.
@@ -102,6 +102,29 @@ One pass over the Markdown event stream, with five interceptions:
 It retains its public signature and emits the base-only page shell. During output assembly,
 an internal helper adds relative links for the selected preset and custom stylesheet after
 the base stylesheet, in that order, adjusted for the page's output depth.
+
+## Sidebar sorting
+
+Planning captures each source file's creation and modification timestamps alongside its
+title. Rendering exposes available values on sidebar page and subgroup rows as epoch
+milliseconds; unknown timestamps are omitted. A subgroup's creation time is the earliest
+known time among all descendant pages and its modification time is the latest known time,
+including its linked landing page. Unknown page times do not affect aggregation; if no
+descendant has a known time, the group time is unknown. Synthetic pages have no date values.
+
+The browser script enhances each group with at least two immediate rows (pages or
+subgroups) by adding a native sort chooser. Selected modes sort all those rows together by
+displayed page title or subgroup heading, or by their timestamps. Moving a subgroup leaves
+its contents and its independent sort preference intact; the root page stays pinned.
+Default restores the planner's pages-first filename order followed by alphabetical
+subgroups. Date ties use ascending natural displayed title or heading and then original
+row order; missing dates sort last in both directions.
+
+The script stores each non-default choice in `sessionStorage`, keyed by the resolved site
+root and the group's directory path, independently from collapse state. It validates
+stored choices, removes obsolete values and treats storage as best-effort so a storage
+failure still allows sorting in the current page. Since the chooser is inserted by
+JavaScript, a page without JavaScript keeps its default navigation without an inert control.
 
 ## Custom stylesheet
 
@@ -202,7 +225,8 @@ parallel render pass worth having.
 
 Three phases fan out across `rayon`, and all are pure functions of their inputs:
 
-- **Read and title** — each source file is read once and its first heading extracted.
+- **Read and title** — each source file is read once, its first heading extracted, and its
+  available filesystem timestamps captured.
 - **Render** — each page is rendered independently, Mermaid layout included.
 - **Collect tasks** — with `--todo`, each page's open tasks are lifted out independently.
 

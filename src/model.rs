@@ -86,6 +86,15 @@ impl std::fmt::Display for TargetPath {
     }
 }
 
+/// Source-file timestamps, when the filesystem makes them available.
+#[derive(Clone, Debug, Default)]
+pub struct PageTimes {
+    /// When the source file was created.
+    pub created: Option<std::time::SystemTime>,
+    /// When the source file was last modified.
+    pub modified: Option<std::time::SystemTime>,
+}
+
 /// One rendered document.
 #[derive(Clone, Debug)]
 pub struct Page {
@@ -95,6 +104,8 @@ pub struct Page {
     pub target: TargetPath,
     /// The page's title.
     pub title: String,
+    /// Source-file timestamps captured during planning; unknown for synthetic pages.
+    pub times: PageTimes,
     /// True for exactly one page: the `--root` file, emitted as `index.html`.
     pub is_root: bool,
 }

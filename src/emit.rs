@@ -330,6 +330,7 @@ mod tests {
                 source: SourceRel::new("README.md"),
                 target: TargetPath::new(target),
                 title: "Home".into(),
+                times: Default::default(),
                 is_root: true,
             }],
             ..Site::default()

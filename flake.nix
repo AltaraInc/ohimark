@@ -99,6 +99,16 @@
         '';
         installPhase = "touch $out";
       });
+      sidebar-sort = pkgs.runCommand "${pname}-sidebar-sort" {
+        nativeBuildInputs = [ pkgs.nodejs ];
+      } ''
+        cp -r ${pkgs.${pname}.src} source
+        chmod -R u+w source
+        cd source
+        node --check src/assets/ohimark.js
+        node --test tests/sidebar-sort.test.cjs
+        touch $out
+      '';
       docs = pkgs.${docsName}.docs;
     });
 
@@ -107,6 +117,7 @@
         inputsFrom = [ pkgs.${pname} ];
         packages = [
           pkgs.rustToolchain
+          pkgs.nodejs
         ];
         RUST_SRC_PATH = "${pkgs.rustToolchain}/lib/rustlib/src/rust/library";
       };

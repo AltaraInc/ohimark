@@ -1010,6 +1010,7 @@ mod tests {
             source: SourceRel::new("page.md"),
             target: TargetPath::new("page.html"),
             title: "Page".to_string(),
+            times: Default::default(),
             is_root: false,
         }
     }
@@ -1125,6 +1126,7 @@ mod tests {
             source: SourceRel::new("guide.md"),
             target: TargetPath::new("guide.html"),
             title: String::new(),
+            times: Default::default(),
             is_root: false,
         }];
         let site = site_with(&[("guide.md", SourceKind::Page(0))], pages);
@@ -1140,6 +1142,7 @@ mod tests {
             source: SourceRel::new("README.md"),
             target: TargetPath::new("index.html"),
             title: String::new(),
+            times: Default::default(),
             is_root: true,
         }];
         let site = site_with(&[("README.md", SourceKind::Page(0))], pages);
@@ -1177,6 +1180,7 @@ mod tests {
             source: SourceRel::new("guide.md"),
             target: TargetPath::new("guide.html"),
             title: String::new(),
+            times: Default::default(),
             is_root: false,
         }];
         let site = site_with(&[("guide.md", SourceKind::Page(0))], pages);

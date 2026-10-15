@@ -390,6 +390,7 @@ mod tests {
             source,
             target,
             title: "Page".to_string(),
+            times: Default::default(),
             is_root: false,
         }
     }

@@ -22,6 +22,7 @@
   --ohm-content-max: none;
   --ohm-icon-size: 1.25rem;
   --ohm-icon-stroke-width: 1.75;
+  --ohm-nav-sort-size: 2.25rem;
 
   --ohm-bg: Canvas;
   --ohm-fg: CanvasText;
@@ -293,6 +294,66 @@ img {
 /* Keep the browser's disclosure marker beside a linked group label. */
 .ohm-nav-summary .ohm-nav-link {
   display: inline;
+}
+
+/* The native select covers an icon tile while retaining its platform menu. */
+.ohm-nav-sort {
+  position: relative;
+  vertical-align: middle;
+  background: ButtonFace;
+  color: ButtonText;
+  border: 1px solid ButtonBorder;
+}
+
+.ohm-icon-button.ohm-nav-sort {
+  width: var(--ohm-nav-sort-size);
+  height: var(--ohm-nav-sort-size);
+}
+
+.ohm-nav-group--sortable {
+  position: relative;
+}
+
+.ohm-nav-group--sortable > .ohm-nav-details > .ohm-nav-summary {
+  box-sizing: border-box;
+  min-height: var(--ohm-nav-sort-size);
+  padding-inline-end: calc(var(--ohm-nav-sort-size) + 0.25rem);
+}
+
+.ohm-nav-group--sortable > .ohm-nav-sort {
+  position: absolute;
+  top: 0;
+  inset-inline-end: 0;
+}
+
+.ohm-nav-sort-select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+  font: inherit;
+  color: var(--ohm-fg);
+  background: var(--ohm-bg);
+}
+
+.ohm-nav-sort:focus-within {
+  outline: 2px solid var(--ohm-accent);
+  outline-offset: 2px;
+}
+
+.ohm-nav-sort.ohm-nav-sort--active {
+  color: var(--ohm-accent);
+  border-color: var(--ohm-accent);
+  background: color-mix(in srgb, var(--ohm-accent) 12%, var(--ohm-sidebar-bg));
+}
+
+@media (pointer: coarse) {
+  :root {
+    --ohm-nav-sort-size: 2.75rem;
+  }
 }
 
 .ohm-nav-link--current,
@@ -604,6 +665,7 @@ img {
     padding-right: 1px;
   }
 
+  .ohm-nav-state:not(:checked) ~ .ohm-body .ohm-sidebar .ohm-nav-sort,
   .ohm-nav-state:not(:checked) ~ .ohm-body .ohm-sidebar .ohm-nav > .ohm-panel-header > .ohm-nav-link,
   .ohm-nav-state:not(:checked) ~ .ohm-body .ohm-sidebar .ohm-nav > .ohm-nav-list {
     display: none;
@@ -648,6 +710,7 @@ img {
     justify-content: center;
   }
 
+  .ohm-nav-state:checked ~ .ohm-body .ohm-sidebar .ohm-nav-sort,
   .ohm-nav-state:checked ~ .ohm-body .ohm-sidebar .ohm-nav > .ohm-panel-header > .ohm-nav-link,
   .ohm-nav-state:checked ~ .ohm-body .ohm-sidebar .ohm-nav > .ohm-nav-list {
     display: none;

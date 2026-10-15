@@ -24,6 +24,7 @@
     clipboard: '<svg class="ohm-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"/></svg>',
     check: '<svg class="ohm-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 6 9 17l-5-5"/></svg>',
     code: '<svg class="ohm-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m9 8-5 4 5 4M15 8l5 4-5 4"/></svg>',
+    sort: '<svg class="ohm-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 6h16M4 12h10M4 18h4M17 12v8m-3-3 3 3 3-3"/></svg>',
     fullscreen: '<svg class="ohm-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3"/></svg>',
     fullscreenExit: '<svg class="ohm-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 3v3a2 2 0 0 1-2 2H3M16 3v3a2 2 0 0 0 2 2h3M21 16h-3a2 2 0 0 0-2 2v3M8 21v-3a2 2 0 0 0-2-2H3"/></svg>',
   };
@@ -527,6 +528,196 @@
   }
 
   preserveSidebarGroups();
+
+  function enhanceSidebarSorting() {
+    var brand = document.querySelector(".ohm-brand[href]");
+    if (!brand) return;
+
+    var modes = new Map([
+      ["default", "Default (filename order)"],
+      ["name-asc", "Name A–Z"],
+      ["name-desc", "Name Z–A"],
+      ["created-desc", "Created newest"],
+      ["created-asc", "Created oldest"],
+      ["updated-desc", "Updated newest"],
+      ["updated-asc", "Updated oldest"],
+    ]);
+    var groups = [];
+    var preferences = Object.create(null);
+    var storageKey = "ohimark-sidebar-sort:" + brand.href;
+    var storedValue = null;
+    var collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+
+    function directChild(parent, className) {
+      return Array.from(parent.children).find(function (child) {
+        return child.classList.contains(className);
+      });
+    }
+
+    var topList = document.querySelector(".ohm-nav > .ohm-nav-list");
+    var header = document.querySelector(".ohm-sidebar-header");
+    if (topList && header) {
+      groups.push({ key: "", list: topList, heading: header, label: "Sort top-level items" });
+    }
+    document.querySelectorAll(".ohm-sidebar details.ohm-nav-details[data-ohm-nav-group]").forEach(function (group) {
+      var list = directChild(group, "ohm-nav-list");
+      var summary = directChild(group, "ohm-nav-summary");
+      if (!list || !summary) return;
+      var label = directChild(summary, "ohm-nav-label");
+      var key = group.getAttribute("data-ohm-nav-group");
+      groups.push({
+        key: key,
+        list: list,
+        heading: summary,
+        container: group.parentElement,
+        label: "Sort items in " + (label ? label.textContent.trim() : key),
+      });
+    });
+    if (!groups.length) return;
+
+    var groupKeys = new Set(groups.map(function (group) { return group.key; }));
+    try {
+      storedValue = window.sessionStorage.getItem(storageKey);
+      var saved = JSON.parse(storedValue);
+      if (saved && typeof saved === "object" && !Array.isArray(saved)) {
+        Object.keys(saved).forEach(function (key) {
+          if (groupKeys.has(key) && saved[key] !== "default" && modes.has(saved[key])) {
+            preferences[key] = saved[key];
+          }
+        });
+      }
+    } catch (err) {
+      /* Sorting remains available with blocked storage or malformed JSON. */
+    }
+
+    function writePreferences() {
+      var value = Object.keys(preferences).length ? JSON.stringify(preferences) : null;
+      if (value === storedValue) return;
+      try {
+        if (value === null) {
+          window.sessionStorage.removeItem(storageKey);
+        } else {
+          window.sessionStorage.setItem(storageKey, value);
+        }
+        storedValue = value;
+      } catch (err) {
+        /* Persistence is best-effort; the current sort still takes effect. */
+      }
+    }
+
+    function timestamp(item, attribute) {
+      var value = item.getAttribute(attribute);
+      if (value === null || !/^-?\d+$/.test(value)) return null;
+      var number = Number(value);
+      return Number.isSafeInteger(number) ? number : null;
+    }
+
+    groups.forEach(function (group) {
+      var children = Array.from(group.list.children);
+      var items = [];
+      children.forEach(function (child, index) {
+        if (child.tagName !== "LI") return;
+        var label;
+        if (child.classList.contains("ohm-nav-group")) {
+          var details = directChild(child, "ohm-nav-details");
+          var summary = details && directChild(details, "ohm-nav-summary");
+          label = summary && directChild(summary, "ohm-nav-label");
+        } else if (child.classList.contains("ohm-nav-item")) {
+          label = directChild(child, "ohm-nav-link");
+        } else {
+          return;
+        }
+        items.push({
+          element: child,
+          index: index,
+          title: label ? label.textContent.trim() : "",
+          created: timestamp(child, "data-ohm-created"),
+          updated: timestamp(child, "data-ohm-updated"),
+        });
+      });
+      if (items.length < 2) return;
+      var sortableElements = new Set(items.map(function (item) { return item.element; }));
+
+      var control = document.createElement("label");
+      control.className = "ohm-icon-button ohm-nav-sort";
+      control.innerHTML = ICONS.sort;
+      var select = document.createElement("select");
+      select.className = "ohm-nav-sort-select";
+      select.setAttribute("aria-label", group.label);
+      modes.forEach(function (label, value) {
+        var option = document.createElement("option");
+        option.value = value;
+        option.textContent = label;
+        select.appendChild(option);
+      });
+      control.appendChild(select);
+      if (group.container) {
+        // A select inside summary can toggle details on native keyboard input.
+        // Keep it beside details so the chooser also works for closed groups.
+        group.container.classList.add("ohm-nav-group--sortable");
+        group.container.insertBefore(control, group.container.firstChild);
+      } else {
+        group.heading.insertBefore(control, directChild(group.heading, "ohm-nav-button") || null);
+      }
+      ["click", "keydown", "keyup"].forEach(function (type) {
+        control.addEventListener(type, function (event) { event.stopPropagation(); });
+      });
+
+      function sort(mode) {
+        var ordered = items.slice();
+        if (mode !== "default") {
+          var field = mode.split("-")[0];
+          var direction = mode.endsWith("-desc") ? -1 : 1;
+          ordered.sort(function (a, b) {
+            if (field !== "name") {
+              if (a[field] === null && b[field] !== null) return 1;
+              if (a[field] !== null && b[field] === null) return -1;
+              if (a[field] !== null && a[field] !== b[field]) {
+                return (a[field] < b[field] ? -1 : 1) * direction;
+              }
+            }
+            return collator.compare(a.title, b.title) * (field === "name" ? direction : 1) || a.index - b.index;
+          });
+        }
+        // Keep unrecognized children in their original slots. Move existing
+        // rows only when needed; moveBefore also preserves native DOM state.
+        var next = 0;
+        children.forEach(function (original, index) {
+          var element = sortableElements.has(original) ? ordered[next++].element : original;
+          var reference = group.list.children[index] || null;
+          if (element === reference) return;
+          if (typeof group.list.moveBefore === "function") {
+            group.list.moveBefore(element, reference);
+          } else {
+            group.list.insertBefore(element, reference);
+          }
+        });
+        select.value = mode;
+        control.setAttribute("data-ohm-sort-mode", mode);
+        control.classList.toggle("ohm-nav-sort--active", mode !== "default");
+        var title = group.label + ": " + modes.get(mode);
+        control.setAttribute("title", title);
+        select.setAttribute("title", title);
+      }
+
+      sort(preferences[group.key] || "default");
+      select.addEventListener("change", function () {
+        var mode = modes.has(select.value) ? select.value : "default";
+        if (mode === "default") {
+          delete preferences[group.key];
+        } else {
+          preferences[group.key] = mode;
+        }
+        sort(mode);
+        writePreferences();
+      });
+    });
+
+    // Clean stale/default/invalid entries while leaving first visits unwritten.
+    writePreferences();
+  }
+
+  enhanceSidebarSorting();
 
   /* =======================================================================
      6. One delegated click listener for every interactive control above,

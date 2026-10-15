@@ -12,7 +12,7 @@ use rayon::prelude::*;
 use crate::cli::Config;
 use crate::links;
 use crate::model::{
-    Error, NavNode, Page, Result, Site, SourceKind, SourceRel, TargetPath, Warnings,
+    Error, NavNode, Page, PageTimes, Result, Site, SourceKind, SourceRel, TargetPath, Warnings,
 };
 use crate::todo;
 
@@ -76,6 +76,7 @@ pub fn plan(config: &Config) -> Result<Planned> {
                     source: source.clone(),
                     target,
                     title: outcome.title,
+                    times: outcome.times,
                     is_root,
                 });
                 sources.push(text);
@@ -130,6 +131,7 @@ pub fn plan(config: &Config) -> Result<Planned> {
                     source: SourceRel::new(TODO_SOURCE),
                     target,
                     title: "TODO".to_string(),
+                    times: PageTimes::default(),
                     is_root: false,
                 });
                 sources.push("# TODO\n".to_string());
@@ -354,6 +356,8 @@ struct ReadOutcome {
     text: Option<String>,
     /// Meaningless when `text` is `None`.
     title: String,
+    /// Unknown when source metadata is unavailable.
+    times: PageTimes,
     /// This task's own findings; merged by the caller after the parallel
     /// phase, in page order, so stderr stays deterministic (R11.3).
     warnings: Warnings,
@@ -368,9 +372,16 @@ fn read_and_title(dir: &Utf8Path, source: &SourceRel) -> ReadOutcome {
     match read_utf8(&full_path) {
         Ok(text) => {
             let title = extract_title(&text, source);
+            let times = std::fs::metadata(&full_path)
+                .map(|metadata| PageTimes {
+                    created: metadata.created().ok(),
+                    modified: metadata.modified().ok(),
+                })
+                .unwrap_or_default();
             ReadOutcome {
                 text: Some(text),
                 title,
+                times,
                 warnings,
             }
         }
@@ -379,6 +390,7 @@ fn read_and_title(dir: &Utf8Path, source: &SourceRel) -> ReadOutcome {
             ReadOutcome {
                 text: None,
                 title: String::new(),
+                times: PageTimes::default(),
                 warnings,
             }
         }
@@ -585,8 +597,65 @@ mod tests {
             source,
             target,
             title: title.to_string(),
+            times: PageTimes::default(),
             is_root,
         }
+    }
+
+    #[test]
+    fn read_and_title_captures_source_metadata_with_controlled_modified_time() {
+        let dir = tempfile::tempdir().expect("create source directory");
+        let dir = Utf8Path::from_path(dir.path()).expect("UTF-8 fixture path");
+        let path = dir.join("note.md");
+        std::fs::write(&path, "# Note\n").expect("write source");
+        let modified = std::time::UNIX_EPOCH + std::time::Duration::from_millis(1_600_000_000_123);
+        std::fs::File::options()
+            .write(true)
+            .open(&path)
+            .expect("open source")
+            .set_times(std::fs::FileTimes::new().set_modified(modified))
+            .expect("set source modification time");
+        let metadata = std::fs::metadata(&path).expect("read source metadata");
+
+        let outcome = read_and_title(dir, &SourceRel::new("note.md"));
+        assert_eq!(outcome.text.as_deref(), Some("# Note\n"));
+        assert_eq!(outcome.title, "Note");
+        assert_eq!(outcome.times.created, metadata.created().ok());
+        assert_eq!(outcome.times.modified, Some(modified));
+        assert!(outcome.warnings.is_empty());
+    }
+
+    #[test]
+    fn planning_preserves_real_todo_times_and_leaves_synthetic_times_unknown() {
+        let dir = tempfile::tempdir().expect("create source directory");
+        let dir = Utf8Path::from_path(dir.path()).expect("UTF-8 fixture path");
+        std::fs::write(dir.join("README.md"), "# Home\n\n- [ ] Task\n").expect("write source");
+        let config = Config {
+            dir: dir.to_owned(),
+            out: dir.join("output"),
+            root: "README.md".into(),
+            theme: None,
+            stylesheet: None,
+            excludes: Vec::new(),
+            out_inside_dir: Some("output".into()),
+            todo: true,
+        };
+
+        let synthetic = plan(&config).expect("plan synthetic TODO");
+        assert!(synthetic.todo_synthetic);
+        let todo = synthetic.site.page(synthetic.site.todo.unwrap());
+        assert!(todo.times.created.is_none());
+        assert!(todo.times.modified.is_none());
+
+        let path = dir.join("TODO.md");
+        std::fs::write(&path, "# Roadmap\n").expect("write TODO source");
+        let metadata = std::fs::metadata(&path).expect("read TODO metadata");
+        let real = plan(&config).expect("plan real TODO");
+        assert!(!real.todo_synthetic);
+        let todo = real.site.page(real.site.todo.unwrap());
+        assert_eq!(todo.title, "Roadmap");
+        assert_eq!(todo.times.created, metadata.created().ok());
+        assert_eq!(todo.times.modified, metadata.modified().ok());
     }
 
     #[test]

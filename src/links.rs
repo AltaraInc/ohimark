@@ -200,6 +200,7 @@ mod tests {
             source: SourceRel::new(source),
             target: TargetPath::new(target),
             title: String::new(),
+            times: Default::default(),
             is_root,
         }
     }

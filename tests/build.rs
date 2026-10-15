@@ -445,7 +445,7 @@ fn r4_2_readme_directory_page_becomes_nav_link_once_without_child() {
     assert_eq!(nav.matches("href=\"docs/README.html\"").count(), 1);
     assert!(
         nav.contains(
-            "<li class=\"ohm-nav-group\"><details class=\"ohm-nav-details\" data-ohm-nav-group=\"docs\" open><summary class=\"ohm-nav-summary\"><a class=\"ohm-nav-link ohm-nav-label\" href=\"docs/README.html\">docs</a></summary><ul class=\"ohm-nav-list\"></ul></details></li>"
+            "<details class=\"ohm-nav-details\" data-ohm-nav-group=\"docs\" open><summary class=\"ohm-nav-summary\"><a class=\"ohm-nav-link ohm-nav-label\" href=\"docs/README.html\">docs</a></summary><ul class=\"ohm-nav-list\"></ul></details></li>"
         ),
         "README landing page must keep the native details/summary group markup: {nav}"
     );

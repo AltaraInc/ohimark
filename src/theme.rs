@@ -3,10 +3,13 @@
 //! minimal base CSS and JS, embedded at compile time so the built site needs
 //! no network access at runtime (R8.7).
 
+use std::collections::HashMap;
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use camino::Utf8Path;
 
 use crate::links;
-use crate::model::{NavNode, OutlineEntry, Page, Site, escape_html};
+use crate::model::{NavNode, OutlineEntry, Page, PageTimes, Site, TargetPath, escape_html};
 
 /// The site's minimal base stylesheet, embedded at compile time (R8.7:
 /// nothing is fetched at runtime).
@@ -34,12 +37,20 @@ const PANEL_ICONS: &str = "<svg class=\"ohm-icon ohm-icon-collapse\" viewBox=\"0
 /// different pages necessarily yields different hrefs by depth (R11.1) while
 /// the structure, order and labels stay invariant (R4.7) — only the
 /// current-page marker moves.
-fn render_nav_list(nodes: &[NavNode], page: &Page, dir: &Utf8Path, parent_path: &str) -> String {
+fn render_nav_list(
+    nodes: &[NavNode],
+    page: &Page,
+    dir: &Utf8Path,
+    parent_path: &str,
+    times_by_target: &HashMap<&TargetPath, &PageTimes>,
+) -> (String, PageTimes) {
     let mut out = String::new();
+    let mut times = PageTimes::default();
     for node in nodes {
-        render_nav_node(node, page, dir, parent_path, &mut out);
+        let node_times = render_nav_node(node, page, dir, parent_path, times_by_target, &mut out);
+        merge_times(&mut times, &node_times);
     }
-    out
+    (out, times)
 }
 
 /// The class suffix and `aria-current` attribute for a nav link, present only
@@ -69,12 +80,20 @@ fn render_nav_node(
     page: &Page,
     dir: &Utf8Path,
     parent_path: &str,
+    times_by_target: &HashMap<&TargetPath, &PageTimes>,
     out: &mut String,
-) {
+) -> PageTimes {
     match node {
         NavNode::Page { title, target } => {
             let link = render_nav_link(title, target, page, dir);
-            out.push_str(&format!("<li class=\"ohm-nav-item\">{link}</li>"));
+            let times = times_by_target
+                .get(target)
+                .copied()
+                .cloned()
+                .unwrap_or_default();
+            let attrs = page_time_attrs(Some(&times));
+            out.push_str(&format!("<li class=\"ohm-nav-item\"{attrs}>{link}</li>"));
+            times
         }
         NavNode::Group {
             label,
@@ -88,7 +107,14 @@ fn render_nav_node(
             } else {
                 format!("{parent_path}/{label}")
             };
-            let children_html = render_nav_list(children, page, dir, &group_path);
+            let (children_html, mut times) =
+                render_nav_list(children, page, dir, &group_path, times_by_target);
+            if let Some(landing_times) =
+                link.as_ref().and_then(|target| times_by_target.get(target))
+            {
+                merge_times(&mut times, landing_times);
+            }
+            let attrs = page_time_attrs(Some(&times));
             let group_attr = escape_html(&group_path);
             let label = escape_html(label);
             match link {
@@ -97,18 +123,49 @@ fn render_nav_node(
                     let href = links::relative_to(dir, target.as_path());
                     let (current_class, current_attr) = current_marker(*target == page.target);
                     out.push_str(&format!(
-                        "<li class=\"ohm-nav-group\"><details class=\"ohm-nav-details\" data-ohm-nav-group=\"{group_attr}\" open><summary class=\"ohm-nav-summary\"><a class=\"ohm-nav-link ohm-nav-label{current_class}\"{current_attr} href=\"{href}\">{label}</a></summary><ul class=\"ohm-nav-list\">{children_html}</ul></details></li>"
+                        "<li class=\"ohm-nav-group\"{attrs}><details class=\"ohm-nav-details\" data-ohm-nav-group=\"{group_attr}\" open><summary class=\"ohm-nav-summary\"><a class=\"ohm-nav-link ohm-nav-label{current_class}\"{current_attr} href=\"{href}\">{label}</a></summary><ul class=\"ohm-nav-list\">{children_html}</ul></details></li>"
                     ));
                 }
                 // R4.3: otherwise the node is a plain label with no link.
                 None => {
                     out.push_str(&format!(
-                        "<li class=\"ohm-nav-group\"><details class=\"ohm-nav-details\" data-ohm-nav-group=\"{group_attr}\" open><summary class=\"ohm-nav-summary\"><span class=\"ohm-nav-label\">{label}</span></summary><ul class=\"ohm-nav-list\">{children_html}</ul></details></li>"
+                        "<li class=\"ohm-nav-group\"{attrs}><details class=\"ohm-nav-details\" data-ohm-nav-group=\"{group_attr}\" open><summary class=\"ohm-nav-summary\"><span class=\"ohm-nav-label\">{label}</span></summary><ul class=\"ohm-nav-list\">{children_html}</ul></details></li>"
                     ));
                 }
             }
+            times
         }
     }
+}
+
+/// Combine source-page dates while the navigation is rendered bottom-up.
+fn merge_times(aggregate: &mut PageTimes, times: &PageTimes) {
+    aggregate.created = aggregate.created.into_iter().chain(times.created).min();
+    aggregate.modified = aggregate.modified.into_iter().chain(times.modified).max();
+}
+
+/// Epoch milliseconds that JavaScript can compare without losing integer precision.
+fn timestamp_millis(time: SystemTime) -> Option<i128> {
+    let millis = match time.duration_since(UNIX_EPOCH) {
+        Ok(duration) => i128::try_from(duration.as_millis()).ok()?,
+        Err(error) => -i128::try_from(error.duration().as_millis()).ok()?,
+    };
+    const MAX_SAFE_INTEGER: i128 = 9_007_199_254_740_991;
+    (-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER)
+        .contains(&millis)
+        .then_some(millis)
+}
+
+fn page_time_attrs(times: Option<&PageTimes>) -> String {
+    let mut attrs = String::new();
+    if let Some(times) = times {
+        for (name, time) in [("created", times.created), ("updated", times.modified)] {
+            if let Some(millis) = time.and_then(timestamp_millis) {
+                attrs.push_str(&format!(" data-ohm-{name}=\"{millis}\""));
+            }
+        }
+    }
+    attrs
 }
 
 /// Render the on-this-page outline. R8.3: a page with no headings shows no
@@ -178,7 +235,12 @@ pub(crate) fn shell_with_stylesheets(
         }
         _ => (None, site.nav.as_slice()),
     };
-    let nav = render_nav_list(sidebar_nav_nodes, page, dir, "");
+    let times_by_target = site
+        .pages
+        .iter()
+        .map(|page| (&page.target, &page.times))
+        .collect();
+    let (nav, _) = render_nav_list(sidebar_nav_nodes, page, dir, "", &times_by_target);
     let outline_html = render_outline(outline);
 
     let mut out = String::new();
@@ -273,6 +335,7 @@ mod tests {
             source: SourceRel::new(source),
             target: TargetPath::new(target),
             title: title.to_string(),
+            times: PageTimes::default(),
             is_root,
         }
     }
@@ -314,6 +377,240 @@ mod tests {
             }
         }
         out
+    }
+
+    #[test]
+    fn sidebar_timestamp_millis_handle_signed_dates_and_javascript_precision() {
+        use std::time::Duration;
+
+        assert_eq!(timestamp_millis(UNIX_EPOCH), Some(0));
+        assert_eq!(
+            timestamp_millis(UNIX_EPOCH + Duration::from_micros(1_234_567)),
+            Some(1234)
+        );
+        assert_eq!(
+            timestamp_millis(UNIX_EPOCH - Duration::from_millis(1500)),
+            Some(-1500)
+        );
+        for (millis, expected) in [
+            (9_007_199_254_740_991, Some(9_007_199_254_740_991)),
+            (9_007_199_254_740_992, None),
+            (u64::MAX, None),
+        ] {
+            let duration = Duration::from_millis(millis);
+            if let Some(time) = UNIX_EPOCH.checked_add(duration) {
+                assert_eq!(timestamp_millis(time), expected);
+            }
+            if let Some(time) = UNIX_EPOCH.checked_sub(duration) {
+                assert_eq!(timestamp_millis(time), expected.map(|value| -value));
+            }
+        }
+
+        assert_eq!(page_time_attrs(None), "");
+        assert_eq!(page_time_attrs(Some(&PageTimes::default())), "");
+        assert_eq!(
+            page_time_attrs(Some(&PageTimes {
+                created: Some(UNIX_EPOCH),
+                modified: Some(UNIX_EPOCH - Duration::from_millis(1500)),
+            })),
+            " data-ohm-created=\"0\" data-ohm-updated=\"-1500\""
+        );
+        if let Some(unsafe_time) =
+            UNIX_EPOCH.checked_add(Duration::from_millis(9_007_199_254_740_992))
+        {
+            assert_eq!(
+                page_time_attrs(Some(&PageTimes {
+                    created: Some(unsafe_time),
+                    modified: None,
+                })),
+                ""
+            );
+        }
+    }
+
+    #[test]
+    fn sidebar_page_and_group_timestamps_are_identical_across_depths() {
+        let mut root = page("README.md", "index.html", "Home", true);
+        root.times.created = Some(UNIX_EPOCH);
+        let mut guide = page("docs/guide.md", "docs/guide.html", "Guide", false);
+        guide.times = PageTimes {
+            created: Some(UNIX_EPOCH),
+            modified: Some(UNIX_EPOCH - std::time::Duration::from_millis(1500)),
+        };
+        let mut landing = page("docs/docs.md", "docs/docs.html", "Docs", false);
+        landing.times.created = Some(UNIX_EPOCH);
+        let unknown = page("unknown.md", "unknown.html", "Unknown", false);
+        let nav = vec![
+            NavNode::Page {
+                title: root.title.clone(),
+                target: root.target.clone(),
+            },
+            NavNode::Page {
+                title: unknown.title.clone(),
+                target: unknown.target.clone(),
+            },
+            NavNode::Group {
+                label: "docs".into(),
+                link: Some(landing.target.clone()),
+                children: vec![NavNode::Page {
+                    title: guide.title.clone(),
+                    target: guide.target.clone(),
+                }],
+            },
+        ];
+        let site = site_with(vec![root.clone(), guide.clone(), landing, unknown], nav);
+        for page in [&root, &guide] {
+            let html = shell(page, &site, "", &[]);
+            let sidebar = extract_sidebar(&html);
+            assert_eq!(sidebar.matches("data-ohm-created=\"0\"").count(), 2);
+            assert_eq!(sidebar.matches("data-ohm-updated=\"-1500\"").count(), 2);
+            assert!(sidebar.contains(
+                "<li class=\"ohm-nav-item\" data-ohm-created=\"0\" data-ohm-updated=\"-1500\">"
+            ));
+            assert!(sidebar.contains("<li class=\"ohm-nav-item\"><a"));
+            assert!(sidebar.contains(
+                "<li class=\"ohm-nav-group\" data-ohm-created=\"0\" data-ohm-updated=\"-1500\"><details"
+            ));
+            let hrefs = all_hrefs(sidebar);
+            assert_eq!(hrefs.len(), 4);
+            let prefix = if page.is_root { "" } else { "../" };
+            assert_eq!(hrefs[0], format!("{prefix}index.html"));
+            assert_eq!(hrefs[1], format!("{prefix}unknown.html"));
+            assert_eq!(
+                hrefs[2],
+                if page.is_root {
+                    "docs/docs.html"
+                } else {
+                    "docs.html"
+                }
+            );
+            assert_eq!(
+                hrefs[3],
+                if page.is_root {
+                    "docs/guide.html"
+                } else {
+                    "guide.html"
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn sidebar_groups_aggregate_all_descendant_and_landing_dates() {
+        fn dated_page(name: &str, created: Option<i64>, modified: Option<i64>) -> Page {
+            let time = |millis: i64| {
+                let duration = std::time::Duration::from_millis(millis.unsigned_abs());
+                if millis < 0 {
+                    UNIX_EPOCH - duration
+                } else {
+                    UNIX_EPOCH + duration
+                }
+            };
+            let mut page = page(&format!("{name}.md"), &format!("{name}.html"), name, false);
+            page.times = PageTimes {
+                created: created.map(time),
+                modified: modified.map(time),
+            };
+            page
+        }
+
+        let root = page("README.md", "index.html", "Home", true);
+        let landing = dated_page("docs/README", Some(-5000), Some(15000));
+        let chapter = dated_page("docs/chapter", Some(0), Some(-1500));
+        let deep_landing = dated_page("docs/nested/deep/README", Some(-1500), None);
+        let leaf = dated_page("docs/nested/deep/leaf", None, Some(7000));
+        let unknown = dated_page("docs/unknown/note", None, None);
+        let updated_only = dated_page("updated/note", None, Some(0));
+        let created_only = dated_page("created/README", Some(-2000), None);
+        let nav_page = |page: &Page| NavNode::Page {
+            title: page.title.clone(),
+            target: page.target.clone(),
+        };
+        let nav = vec![
+            nav_page(&root),
+            NavNode::Group {
+                label: "docs".into(),
+                link: Some(landing.target.clone()),
+                children: vec![
+                    nav_page(&chapter),
+                    NavNode::Group {
+                        label: "nested".into(),
+                        link: None,
+                        children: vec![NavNode::Group {
+                            label: "deep".into(),
+                            link: Some(deep_landing.target.clone()),
+                            children: vec![nav_page(&leaf)],
+                        }],
+                    },
+                    NavNode::Group {
+                        label: "unknown".into(),
+                        link: None,
+                        children: vec![nav_page(&unknown)],
+                    },
+                ],
+            },
+            NavNode::Group {
+                label: "updated".into(),
+                link: None,
+                children: vec![nav_page(&updated_only)],
+            },
+            NavNode::Group {
+                label: "created".into(),
+                link: Some(created_only.target.clone()),
+                children: vec![],
+            },
+        ];
+        let site = site_with(
+            vec![
+                root.clone(),
+                landing,
+                chapter,
+                deep_landing,
+                leaf.clone(),
+                unknown,
+                updated_only,
+                created_only,
+            ],
+            nav,
+        );
+        for page in [&root, &leaf] {
+            let html = shell(page, &site, "", &[]);
+            let group_rows: Vec<_> = extract_sidebar(&html)
+                .split("<li class=\"ohm-nav-group\"")
+                .skip(1)
+                .map(|row| {
+                    let attrs = row.split_once('>').unwrap().0;
+                    let key = row
+                        .split_once("data-ohm-nav-group=\"")
+                        .unwrap()
+                        .1
+                        .split_once('"')
+                        .unwrap()
+                        .0;
+                    (key, attrs)
+                })
+                .collect();
+            assert_eq!(
+                group_rows,
+                vec![
+                    (
+                        "docs",
+                        " data-ohm-created=\"-5000\" data-ohm-updated=\"15000\""
+                    ),
+                    (
+                        "docs/nested",
+                        " data-ohm-created=\"-1500\" data-ohm-updated=\"7000\""
+                    ),
+                    (
+                        "docs/nested/deep",
+                        " data-ohm-created=\"-1500\" data-ohm-updated=\"7000\""
+                    ),
+                    ("docs/unknown", ""),
+                    ("updated", " data-ohm-updated=\"0\""),
+                    ("created", " data-ohm-created=\"-2000\""),
+                ]
+            );
+        }
     }
 
     #[test]
