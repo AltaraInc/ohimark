@@ -463,7 +463,7 @@ a {
   }
 }
 
-/* The site title is the masthead: a red dot and tracked capitals. */
+/* The site title is the masthead: tracked capitals. */
 .ohm-sidebar-header > .ohm-nav-link,
 .ohm-sidebar-header > .ohm-nav-link:hover {
   border-left-color: transparent;
@@ -473,16 +473,6 @@ a {
   font-weight: 600;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-}
-
-.ohm-sidebar-header > .ohm-nav-link::before {
-  content: "";
-  display: inline-block;
-  width: 0.5rem;
-  height: 0.5rem;
-  margin-right: 0.625rem;
-  border-radius: 50%;
-  background: var(--basic-accent);
 }
 
 .ohm-outline-title {
