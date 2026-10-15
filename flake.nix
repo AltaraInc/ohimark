@@ -106,7 +106,7 @@
         chmod -R u+w source
         cd source
         node --check src/assets/ohimark.js
-        node --test tests/sidebar-sort.test.cjs
+        node --test tests/*.test.cjs
         touch $out
       '';
       docs = pkgs.${docsName}.docs;

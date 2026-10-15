@@ -661,6 +661,12 @@ a {
 
 .ohm-content li.ohm-task { list-style: none; }
 
+/* Task controls and tag labels share the navigation's sans voice. */
+.ohm-content .ohm-todo-filter,
+.ohm-content .ohm-task-tag {
+  font-family: var(--ohm-font-sans);
+}
+
 /* Task boxes follow the source's tick tiles: a hairline square that turns
    solid red around a white tick. */
 .ohm-content li.ohm-task input[type="checkbox"] {

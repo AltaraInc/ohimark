@@ -4,8 +4,8 @@
  * Implements: R8.1 (theme toggle button, kept in sync with the inline head
  * script that already applied the stored/system theme before paint), R8.6
  * (per-diagram source/graphic toggle), R8.10 (copy-to-clipboard on code
- * blocks and diagrams), plus outline scroll-highlighting and collapsible
- * sidebars with a mobile navigation drawer.
+ * blocks and diagrams), plus TODO tag filtering, outline scroll-highlighting
+ * and collapsible sidebars with a mobile navigation drawer.
  *
  * Loaded with `defer`. Purely additive: the page is already correct and
  * fully usable (R8.8) before this file runs, so every DOM query is guarded
@@ -273,58 +273,403 @@
      ======================================================================= */
 
   var outlineLinks = document.querySelectorAll('.ohm-outline-item > a[href^="#"]');
+  var outlineHeadings = [];
+  var itemByHeadingId = new Map();
+  var outlineObserver = null;
+  var outlineGeneration = 0;
 
-  if (outlineLinks.length && "IntersectionObserver" in window) {
-    var itemByHeadingId = {};
-    var headings = [];
+  outlineLinks.forEach(function (link) {
+    var id = (link.getAttribute("href") || "").slice(1);
+    var heading = id && document.getElementById(id);
+    if (!heading) return;
+    itemByHeadingId.set(id, link.parentElement);
+    outlineHeadings.push(heading);
+  });
 
-    for (var j = 0; j < outlineLinks.length; j++) {
-      var href = outlineLinks[j].getAttribute("href") || "";
-      var id = href.slice(1);
-      if (!id) {
-        continue;
-      }
-      var heading = document.getElementById(id);
-      if (!heading) {
-        continue;
-      }
-      itemByHeadingId[id] = outlineLinks[j].parentElement;
-      headings.push(heading);
+  function setHidden(element, hidden) {
+    if (hidden) element.setAttribute("hidden", "");
+    else element.removeAttribute("hidden");
+  }
+
+  function setActiveOutlineItem(item) {
+    var current = document.querySelector(".ohm-outline-item--active");
+    if (current && current !== item) {
+      current.classList.remove("ohm-outline-item--active");
     }
+    if (item) item.classList.add("ohm-outline-item--active");
+  }
 
-    var setActive = function (item) {
-      var current = document.querySelector(".ohm-outline-item--active");
-      if (current && current !== item) {
-        current.classList.remove("ohm-outline-item--active");
-      }
-      if (item) {
-        item.classList.add("ohm-outline-item--active");
-      }
-    };
+  function refreshOutline() {
+    if (outlineObserver) outlineObserver.disconnect();
+    var generation = ++outlineGeneration;
+    var visibleHeadings = outlineHeadings.filter(function (heading) {
+      var item = itemByHeadingId.get(heading.id);
+      var hidden = !!heading.closest("[hidden]");
+      setHidden(item, hidden);
+      item.classList.remove("ohm-outline-item--active");
+      return !hidden;
+    });
+    if (!visibleHeadings.length || typeof window.IntersectionObserver !== "function") return;
 
-    var observer = new IntersectionObserver(
+    outlineObserver = new window.IntersectionObserver(
       function (entries) {
+        // A disconnected observer can still deliver queued entries after a
+        // filter change. Neither those entries nor hidden headings are active.
+        if (generation !== outlineGeneration) return;
         for (var k = 0; k < entries.length; k++) {
           var entry = entries[k];
-          if (!entry.isIntersecting) {
-            continue;
-          }
-          var item = itemByHeadingId[entry.target.id];
-          if (item) {
-            setActive(item);
-          }
+          if (!entry.isIntersecting || entry.target.closest("[hidden]")) continue;
+          var item = itemByHeadingId.get(entry.target.id);
+          if (item && !item.closest("[hidden]")) setActiveOutlineItem(item);
         }
       },
       { rootMargin: "0px 0px -70% 0px", threshold: 0 }
     );
-
-    for (var m = 0; m < headings.length; m++) {
-      observer.observe(headings[m]);
-    }
+    visibleHeadings.forEach(function (heading) { outlineObserver.observe(heading); });
   }
 
+  refreshOutline();
+
   /* =======================================================================
-     5. Sidebar controls: preserve independent preferences while keeping
+     5. TODO tag filters. The complete list and badges are usable without JS;
+     controls and selection exist only for this visit to the final TODO page.
+     ======================================================================= */
+
+  function enhanceTodoFiltering() {
+    var scope = document.querySelector("article[data-ohm-todo]");
+    if (!scope) return;
+
+    function foldTag(value) {
+      return value.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+    }
+
+    var catalog = new Map();
+    var tasks = Array.from(scope.querySelectorAll("li.ohm-task")).map(function (element) {
+      var keys = [];
+      try {
+        var parsed = JSON.parse(element.getAttribute("data-ohm-tags"));
+        if (Array.isArray(parsed)) keys = parsed;
+      } catch (err) {
+        /* Invalid author-supplied metadata behaves like an untagged task. */
+      }
+      var labels = Array.from(element.querySelectorAll(".ohm-task-tags > .ohm-task-tag")).filter(function (label) {
+        return label.closest("li.ohm-task") === element;
+      });
+      var tags = new Set();
+      keys.forEach(function (key, index) {
+        if (typeof key !== "string" || !key) return;
+        key = key.toLowerCase();
+        tags.add(key);
+        if (!catalog.has(key)) {
+          var label = labels[index] ? labels[index].textContent : key;
+          var color = labels[index] && labels[index].getAttribute("data-ohm-tag-color");
+          catalog.set(key, { key: key, label: label, search: foldTag(label), color: /^[0-7]$/.test(color) ? color : null });
+        }
+      });
+      return { element: element, tags: tags };
+    });
+    if (!catalog.size) return;
+
+    var selected = new Set();
+    var groups = Array.from(scope.querySelectorAll("[data-ohm-todo-group]"));
+    var collected = scope.querySelectorAll("[data-ohm-todo-collected]");
+    var collator = new Intl.Collator(undefined, { sensitivity: "base" });
+    function alphabetically(a, b) {
+      return collator.compare(a.label, b.label) || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
+    }
+    var tagRecords = Array.from(catalog.values()).sort(alphabetically);
+    var listId = "ohm-todo-tags";
+    while (document.getElementById(listId)) listId += "-list";
+    tagRecords.forEach(function (tag, index) {
+      tag.id = listId + "-" + index;
+      while (document.getElementById(tag.id)) tag.id += "-tag";
+    });
+    var open = false;
+    var composing = false;
+    var activeIndex = -1;
+    var visibleTags = [];
+    var optionElements = [];
+
+    function appendIcon(parent, name) {
+      var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svg.setAttribute("class", "ohm-icon");
+      svg.setAttribute("viewBox", "0 0 24 24");
+      svg.setAttribute("aria-hidden", "true");
+      svg.setAttribute("focusable", "false");
+      var shapes = name === "search"
+        ? [["circle", { cx: "10.5", cy: "10.5", r: "6.5" }], ["path", { d: "m16 16 4 4" }]]
+        : [["path", { d: name === "check" ? "M20 6 9 17l-5-5" : "m6 6 12 12M18 6 6 18" }]];
+      shapes.forEach(function (shape) {
+        var element = document.createElementNS("http://www.w3.org/2000/svg", shape[0]);
+        Object.keys(shape[1]).forEach(function (key) { element.setAttribute(key, shape[1][key]); });
+        svg.appendChild(element);
+      });
+      parent.appendChild(svg);
+    }
+
+    function copyColor(element, tag) {
+      if (tag.color !== null) element.setAttribute("data-ohm-tag-color", tag.color);
+    }
+
+    var toolbar = document.createElement("div");
+    toolbar.className = "ohm-todo-filter";
+    toolbar.setAttribute("role", "search");
+    toolbar.setAttribute("aria-label", "Filter tasks by tags");
+    var picker = document.createElement("div");
+    picker.className = "ohm-todo-picker";
+    toolbar.appendChild(picker);
+    var inputRow = document.createElement("div");
+    inputRow.className = "ohm-todo-input-row";
+    appendIcon(inputRow, "search");
+    picker.appendChild(inputRow);
+    var selectedTags = document.createElement("div");
+    selectedTags.className = "ohm-todo-selected";
+    inputRow.appendChild(selectedTags);
+    var search = document.createElement("input");
+    search.className = "ohm-todo-search";
+    search.type = "text";
+    search.setAttribute("role", "combobox");
+    search.setAttribute("aria-label", "Filter by tags");
+    search.setAttribute("placeholder", "Filter tags…");
+    search.setAttribute("autocomplete", "off");
+    search.setAttribute("aria-autocomplete", "list");
+    search.setAttribute("aria-controls", listId);
+    search.setAttribute("aria-expanded", "false");
+    inputRow.appendChild(search);
+    var clear = document.createElement("button");
+    clear.type = "button";
+    clear.className = "ohm-todo-clear";
+    clear.setAttribute("aria-label", "Clear tag filter");
+    clear.setAttribute("title", "Clear");
+    appendIcon(clear, "close");
+    inputRow.appendChild(clear);
+    var count = document.createElement("span");
+    count.className = "ohm-todo-count";
+    count.setAttribute("role", "status");
+    count.setAttribute("aria-live", "polite");
+    count.setAttribute("aria-atomic", "true");
+    toolbar.appendChild(count);
+
+    var popup = document.createElement("div");
+    popup.className = "ohm-todo-popup";
+    setHidden(popup, true);
+    picker.appendChild(popup);
+    var options = document.createElement("ul");
+    options.className = "ohm-todo-options";
+    options.id = listId;
+    options.setAttribute("role", "listbox");
+    options.setAttribute("aria-label", "Tags");
+    options.setAttribute("aria-multiselectable", "true");
+    popup.appendChild(options);
+    var empty = document.createElement("div");
+    empty.className = "ohm-todo-empty";
+    empty.textContent = "No matching tags";
+    popup.appendChild(empty);
+    var hint = document.createElement("div");
+    hint.className = "ohm-todo-hint";
+    popup.appendChild(hint);
+
+    function syncActive(scroll) {
+      optionElements.forEach(function (element, index) {
+        element.classList.toggle("ohm-todo-option--active", open && index === activeIndex);
+      });
+      var active = open && optionElements[activeIndex];
+      if (active) {
+        search.setAttribute("aria-activedescendant", active.id);
+        if (scroll && typeof active.scrollIntoView === "function") active.scrollIntoView({ block: "nearest" });
+      } else search.removeAttribute("aria-activedescendant");
+    }
+
+    function searchRank(tag, query) {
+      if (tag.search === query) return 0;
+      if (tag.search.startsWith(query)) return 1;
+      if (tag.search.includes(query)) return 2;
+      var next = 0;
+      for (var index = 0; index < tag.search.length && next < query.length; index++) {
+        if (tag.search[index] === query[next]) next++;
+      }
+      return next === query.length ? 3 : -1;
+    }
+
+    function renderOptions() {
+      var query = foldTag(search.value.trim());
+      var ranked = tagRecords.map(function (tag) { return { tag: tag, rank: query ? searchRank(tag, query) : 0 }; })
+        .filter(function (entry) { return entry.rank >= 0; });
+      ranked.sort(function (a, b) {
+        var priority = query ? a.rank - b.rank : Number(selected.has(b.tag.key)) - Number(selected.has(a.tag.key));
+        return priority || alphabetically(a.tag, b.tag);
+      });
+      visibleTags = ranked.slice(0, 8).map(function (entry) { return entry.tag; });
+      options.textContent = "";
+      optionElements = visibleTags.map(function (tag, index) {
+        var option = document.createElement("li");
+        option.className = "ohm-todo-option";
+        option.id = tag.id;
+        option.setAttribute("role", "option");
+        option.setAttribute("aria-selected", selected.has(tag.key) ? "true" : "false");
+        var label = document.createElement("span");
+        copyColor(label, tag);
+        label.className = "ohm-task-tag";
+        label.textContent = tag.label;
+        option.appendChild(label);
+        if (selected.has(tag.key)) appendIcon(option, "check");
+        option.addEventListener("pointerdown", function (event) { event.preventDefault(); });
+        option.addEventListener("pointermove", function () { activeIndex = index; syncActive(false); });
+        option.addEventListener("click", function () { toggleTag(tag.key); });
+        options.appendChild(option);
+        return option;
+      });
+      activeIndex = visibleTags.length ? 0 : -1;
+      setHidden(empty, !!visibleTags.length);
+      setHidden(hint, !ranked.length);
+      hint.textContent = ranked.length > 8 ? "Showing 8 of " + ranked.length + " tags. Type to narrow." :
+        ranked.length + (ranked.length === 1 ? " tag" : " tags") + " · Enter to toggle";
+      clear.disabled = !selected.size && !search.value;
+      syncActive(false);
+    }
+
+    function openPopup() {
+      open = true;
+      setHidden(popup, false);
+      search.setAttribute("aria-expanded", "true");
+      renderOptions();
+    }
+
+    function closePopup() {
+      open = false;
+      setHidden(popup, true);
+      search.setAttribute("aria-expanded", "false");
+      activeIndex = -1;
+      syncActive(false);
+    }
+
+    function renderSelected() {
+      selectedTags.textContent = "";
+      var tags = Array.from(selected).map(function (key) { return catalog.get(key); });
+      tags.slice(0, 2).forEach(function (tag) {
+        var button = document.createElement("button");
+        copyColor(button, tag);
+        button.className = "ohm-todo-selected-tag";
+        button.type = "button";
+        button.setAttribute("aria-label", "Remove " + tag.label);
+        button.setAttribute("title", "Remove " + tag.label);
+        var label = document.createElement("span");
+        label.textContent = tag.label;
+        button.appendChild(label);
+        appendIcon(button, "close");
+        button.addEventListener("click", function () { toggleTag(tag.key); });
+        selectedTags.appendChild(button);
+      });
+      if (tags.length > 2) {
+        var more = document.createElement("button");
+        more.type = "button";
+        more.className = "ohm-todo-more";
+        more.textContent = "+" + (tags.length - 2);
+        more.setAttribute("title", tags.slice(2).map(function (tag) { return tag.label; }).join(", "));
+        more.setAttribute("aria-label", "Show " + (tags.length - 2) + " more selected tags");
+        more.addEventListener("click", function () { search.value = ""; search.focus(); openPopup(); });
+        selectedTags.appendChild(more);
+      }
+    }
+
+    function toggleTag(key) {
+      if (selected.has(key)) selected.delete(key);
+      else selected.add(key);
+      search.value = "";
+      renderSelected();
+      applyFilter();
+      search.focus();
+      openPopup();
+    }
+
+    search.addEventListener("focus", openPopup);
+    search.addEventListener("click", function () { if (!open) openPopup(); });
+    search.addEventListener("input", openPopup);
+    search.addEventListener("compositionstart", function () { composing = true; });
+    search.addEventListener("compositionend", function () { composing = false; openPopup(); });
+    search.addEventListener("keydown", function (event) {
+      if (composing || event.isComposing || event.keyCode === 229) return;
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        var wasOpen = open;
+        if (!open) openPopup();
+        if (visibleTags.length) {
+          var step = event.key === "ArrowDown" ? 1 : -1;
+          activeIndex = wasOpen ? (activeIndex + step + visibleTags.length) % visibleTags.length :
+            (step > 0 ? 0 : visibleTags.length - 1);
+          syncActive(true);
+        }
+      } else if (event.key === "Enter" && open && activeIndex >= 0) {
+        event.preventDefault();
+        toggleTag(visibleTags[activeIndex].key);
+      } else if (event.key === "Escape" && open) {
+        event.preventDefault();
+        event.stopPropagation();
+        closePopup();
+      } else if (event.key === "Tab") closePopup();
+    });
+    picker.addEventListener("focusout", function (event) {
+      if (!picker.contains(event.relatedTarget)) closePopup();
+    });
+    document.addEventListener("pointerdown", function (event) {
+      if (!picker.contains(event.target)) closePopup();
+    });
+
+    // Only direct children can be the page title/subtitle; collected headings
+    // and headings inside tasks must not pull the controls into their content.
+    var children = Array.from(scope.children);
+    var title = children.find(function (child) { return child.classList.contains("ohm-page-filename"); }) ||
+      children.find(function (child) { return child.tagName === "H1"; });
+    scope.insertBefore(toolbar, title ? title.nextSibling : scope.firstChild);
+
+    function applyFilter() {
+      var matches = new Set();
+      var visible = new Set();
+      tasks.forEach(function (task) {
+        var matchesTag = !selected.size || Array.from(task.tags).some(function (key) { return selected.has(key); });
+        if (!matchesTag) return;
+        matches.add(task.element);
+        // Keep every task ancestor for context, without making its unrelated
+        // descendants match. The count includes direct matches only.
+        var ancestor = task.element;
+        while (ancestor && scope.contains(ancestor)) {
+          visible.add(ancestor);
+          ancestor = ancestor.parentElement && ancestor.parentElement.closest("li.ohm-task");
+        }
+      });
+      tasks.forEach(function (task) { setHidden(task.element, !visible.has(task.element)); });
+      groups.forEach(function (group) {
+        var hasMatch = tasks.some(function (task) { return matches.has(task.element) && group.contains(task.element); });
+        setHidden(group, !!selected.size && !hasMatch);
+      });
+      collected.forEach(function (section) {
+        var hasGroup = groups.some(function (group) { return section.contains(group) && !group.hasAttribute("hidden"); });
+        setHidden(section, !!selected.size && !hasGroup);
+      });
+      clear.disabled = !selected.size && !search.value;
+      count.textContent = matches.size + "/" + tasks.length;
+      var description = matches.size + " of " + tasks.length + (tasks.length === 1 ? " task matches" : " tasks match");
+      count.setAttribute("aria-label", description);
+      count.setAttribute("title", description);
+      refreshOutline();
+    }
+
+    clear.addEventListener("click", function () {
+      selected.clear();
+      search.value = "";
+      renderSelected();
+      applyFilter();
+      search.focus();
+      openPopup();
+    });
+    applyFilter();
+    renderOptions();
+  }
+
+  enhanceTodoFiltering();
+
+  /* =======================================================================
+     6. Sidebar controls: preserve independent preferences while keeping
      the mobile navigation drawer closed when entering the mobile layout.
      ======================================================================= */
 
@@ -720,7 +1065,7 @@
   enhanceSidebarSorting();
 
   /* =======================================================================
-     6. One delegated click listener for every interactive control above,
+     7. One delegated click listener for every interactive control above,
      plus closing the mobile sidebar drawer on navigation.
      ======================================================================= */
 

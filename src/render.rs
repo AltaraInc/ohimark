@@ -15,7 +15,7 @@
 use std::collections::HashMap;
 
 use camino::Utf8Path;
-use pulldown_cmark::{CodeBlockKind, CowStr, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{CodeBlockKind, CowStr, Event, HeadingLevel, Options, Tag, TagEnd};
 
 use merman::svg::{
     CssOverridePolicy, HostTheme, HostThemeAppearance, Presentation, PresentationRenderPolicy,
@@ -27,6 +27,7 @@ use merman::{
 
 use crate::links::{self, Resolved};
 use crate::model::{OutlineEntry, Page, Site, SourceRel, TargetPath, Warnings, escape_html};
+use crate::task_tags;
 
 /// One rendered page: its body HTML plus everything the rest of the build needs from it.
 pub struct Rendered {
@@ -104,11 +105,13 @@ pub fn render_part(
     let source_dir = page.source.dir();
     let target_dir = page.target.dir();
 
-    let mut events_iter = Parser::new_ext(markdown, parser_options()).peekable();
+    let (events, annotations) = task_tags::parse(markdown, parser_options());
+    let mut events_iter = events.into_iter().zip(&annotations);
     let mut out_events: Vec<Event> = Vec::new();
     let mut containers: Vec<TagEnd> = Vec::new();
 
-    while let Some(event) = events_iter.next() {
+    while let Some((event, annotation)) = events_iter.next() {
+        annotation.emit_before(&mut out_events);
         // A title must be outside every enclosing Markdown container. Headings and
         // code blocks consume their own end events below, so neither enters this stack.
         match &event {
@@ -126,7 +129,7 @@ pub fn render_part(
             // them (R6.1-R6.9, R5.1-R5.2).
             Event::Start(Tag::Heading { level, id, .. }) => {
                 let mut inner: Vec<Event> = Vec::new();
-                for ev in events_iter.by_ref() {
+                for (ev, _) in events_iter.by_ref() {
                     if matches!(ev, Event::End(TagEnd::Heading(_))) {
                         break;
                     }
@@ -198,7 +201,7 @@ pub fn render_part(
             // Interceptions 3 and 4: fenced/indented code blocks (R7.3, R7.4, R7.7).
             Event::Start(Tag::CodeBlock(kind)) => {
                 let mut code = String::new();
-                for ev in events_iter.by_ref() {
+                for (ev, _) in events_iter.by_ref() {
                     match ev {
                         Event::Text(t) => code.push_str(&t),
                         Event::End(TagEnd::CodeBlock) => break,
@@ -242,32 +245,11 @@ pub fn render_part(
                     &mut assets,
                 ));
             }
-            // Interception 5: task-list items (R7.8). `pulldown-cmark` gives the
-            // `<li>` no class, and in a loose list the checkbox sits inside a `<p>`,
-            // out of reach of a child selector — so the marker is dropped by tagging
-            // the item here rather than by matching on its contents.
-            Event::Start(Tag::Item) => {
-                // A loose item opens a paragraph before its marker; hold that event
-                // so the lookahead can reach the marker, then re-emit it in order.
-                let paragraph = if matches!(events_iter.peek(), Some(Event::Start(Tag::Paragraph)))
-                {
-                    events_iter.next()
-                } else {
-                    None
-                };
-                if paragraph.is_some() {
-                    containers.push(TagEnd::Paragraph);
-                }
-                if matches!(events_iter.peek(), Some(Event::TaskListMarker(_))) {
-                    out_events.push(Event::Html(CowStr::from(r#"<li class="ohm-task">"#)));
-                } else {
-                    out_events.push(Event::Start(Tag::Item));
-                }
-                out_events.extend(paragraph);
-            }
-            // Everything else, including raw HTML (R7.5) and ordinary constructs (R7.1),
-            // passes straight through to `pulldown_cmark::html::push_html`.
-            other => out_events.push(other),
+            // Interception 5: task classes, metadata, badges and tag-free prose. The
+            // parallel annotation preserves structural events until emission, shared
+            // with TODO collection's nesting and checked-state analysis.
+            // Everything else, including raw HTML (R7.5), passes through unchanged.
+            other => out_events.push(annotation.decorate(other)),
         }
     }
 
@@ -1328,6 +1310,34 @@ mod tests {
                 .html
                 .contains(r#"<p><input disabled="" type="checkbox" checked=""/>"#)
         );
+    }
+
+    #[test]
+    fn task_tags_render_on_checked_and_open_items_without_todo_collection() {
+        let rendered = render_page(
+            &page(),
+            "- [x] done {Travel}\n- [ ] open {buy}\n- [ ] tagless\n- plain {literal}\n",
+            &Site::default(),
+            &Diagrams::new(),
+        );
+        assert_eq!(rendered.html.matches("data-ohm-tags=").count(), 2);
+        assert_eq!(rendered.html.matches("class=\"ohm-task-tags\"").count(), 2);
+        assert_eq!(rendered.html.matches(r#"<li class="ohm-task">"#).count(), 1);
+        assert!(
+            rendered
+                .html
+                .contains(r#"<input disabled="" type="checkbox" checked=""/>"#),
+            "{}",
+            rendered.html
+        );
+        assert!(
+            rendered
+                .html
+                .contains(r#"class="ohm-task-tag">Travel</span>"#)
+        );
+        assert!(rendered.html.contains("plain {literal}"));
+        assert!(!rendered.html.contains("{Travel}"));
+        assert!(!rendered.html.contains("{buy}"));
     }
 
     #[test]

@@ -19,8 +19,10 @@ use rayon::prelude::*;
 use crate::links::{self, Resolved};
 use crate::model::{Page, Site, SourceRel, TargetPath, escape_html};
 use crate::render::{self, Diagrams, PageIds, Rendered};
+use crate::task_tags::{self, Annotation};
 
 /// The `<li>` a task item opens with, exactly as `render` emits it (R7.8).
+#[cfg(test)]
 const TASK_ITEM_OPEN: &str = r#"<li class="ohm-task">"#;
 
 /// Bytes percent-encoded in a generated file link, so `links::resolve` decodes the
@@ -104,14 +106,14 @@ pub fn render_page(
 /// images re-based to `todo_target` (R12.6).
 #[must_use]
 pub fn collect(page: &Page, markdown: &str, site: &Site, todo_target: &TargetPath) -> Collected {
-    let events: Vec<Event> = Parser::new_ext(markdown, render::parser_options()).collect();
+    let (events, annotations) = task_tags::parse(markdown, render::parser_options());
     let cx = Context {
         page,
         site,
         todo_dir: todo_target.dir(),
     };
     let mut collected = Collected::default();
-    lift_open_items(&events, &cx, &mut collected);
+    lift_open_items(&events, &annotations, &cx, &mut collected);
     collected
 }
 
@@ -133,13 +135,23 @@ struct Context<'s> {
 
 /// Lift every open task item in `events` that is not inside another lifted one, in
 /// source order.
-fn lift_open_items(events: &[Event], cx: &Context, collected: &mut Collected) {
+fn lift_open_items(
+    events: &[Event],
+    annotations: &[Annotation],
+    cx: &Context,
+    collected: &mut Collected,
+) {
     let mut index = 0;
     while index < events.len() {
         if task_state(events, index) == Some(false) {
             // Lifted whole, so an open item nested in this one is not lifted again.
             let end = matching_end(events, index);
-            lift_item(&events[index..=end], cx, collected);
+            lift_item(
+                &events[index..=end],
+                &annotations[index..=end],
+                cx,
+                collected,
+            );
             index = end + 1;
         } else {
             // Anything else, a checked item included, is stepped into rather than
@@ -161,7 +173,7 @@ fn appendix(site: &Site, collected: &[Collected], appended_heading: bool) -> Str
 
     let mut out = String::new();
     if appended_heading {
-        out.push_str("# Collected Tasks\n\n");
+        out.push_str("<section data-ohm-todo-collected>\n\n# Collected Tasks\n\n");
     }
 
     for (index, page_collected) in collected.iter().enumerate() {
@@ -173,10 +185,13 @@ fn appendix(site: &Site, collected: &[Collected], appended_heading: bool) -> Str
         // re-render turns it into the right href (R6.1).
         let dest = percent_encoding::utf8_percent_encode(page.source.as_str(), DEST_ENCODE_SET);
         out.push_str(&format!(
-            "## [{}](<{dest}>)\n\n<ul>{}</ul>\n\n",
+            "<section data-ohm-todo-group>\n\n## [{}](<{dest}>)\n\n<ul>{}</ul>\n\n</section>\n\n",
             escape_markdown(&page.title),
             page_collected.html_items.concat()
         ));
+    }
+    if appended_heading {
+        out.push_str("</section>\n\n");
     }
     out
 }
@@ -245,34 +260,32 @@ fn only_checked_items(events: &[Event], start: usize) -> bool {
 
 /// Serialise one lifted item, `item` running from its `Start(Item)` to its `End(Item)`,
 /// to a single line of HTML, then lift any open items under the checked items it drops.
-fn lift_item(item: &[Event], cx: &Context, collected: &mut Collected) {
+fn lift_item(item: &[Event], annotations: &[Annotation], cx: &Context, collected: &mut Collected) {
     let mut out: Vec<Event> = Vec::with_capacity(item.len());
     // Subtrees dropped from this item, in source order. An open item inside one is still
     // open, so it is lifted on its own, right after this item (R12.2).
-    let mut dropped: Vec<&[Event]> = Vec::new();
+    let mut dropped: Vec<(&[Event], &[Annotation])> = Vec::new();
     let mut in_code = false;
 
     let mut index = 0;
     while index < item.len() {
+        // A parent's badges can belong immediately before a child list that is
+        // pruned below. Emit them before deciding whether to skip that subtree.
+        annotations[index].emit_before(&mut out);
         match &item[index] {
             // R12.2: a nested checked item is dropped with everything under it, and a
             // nested list left with nothing in it goes too.
             Event::Start(Tag::Item) if task_state(item, index) == Some(true) => {
                 let end = matching_end(item, index);
-                dropped.push(&item[index..=end]);
+                dropped.push((&item[index..=end], &annotations[index..=end]));
                 index = end + 1;
                 continue;
             }
             Event::Start(Tag::List(_)) if only_checked_items(item, index) => {
                 let end = matching_end(item, index);
-                dropped.push(&item[index..=end]);
+                dropped.push((&item[index..=end], &annotations[index..=end]));
                 index = end + 1;
                 continue;
-            }
-            // Tagged exactly as `render` tags a task item, so the stylesheet drops its
-            // marker here too (R7.8).
-            Event::Start(Tag::Item) if task_state(item, index).is_some() => {
-                out.push(Event::Html(CowStr::Borrowed(TASK_ITEM_OPEN)));
             }
             ev @ (Event::Start(Tag::Link { .. }) | Event::Start(Tag::Image { .. })) => {
                 out.push(resolve_event(ev.clone(), cx, &mut collected.assets));
@@ -297,7 +310,7 @@ fn lift_item(item: &[Event], cx: &Context, collected: &mut Collected) {
                     escape_html(text).replace('\n', "&#10;"),
                 )));
             }
-            other => out.push(other.clone()),
+            other => out.push(annotations[index].decorate(other.clone())),
         }
         index += 1;
     }
@@ -310,8 +323,8 @@ fn lift_item(item: &[Event], cx: &Context, collected: &mut Collected) {
         .html_items
         .push(html.trim_end().replace('\n', " "));
 
-    for subtree in dropped {
-        lift_open_items(subtree, cx, collected);
+    for (subtree, subtree_annotations) in dropped {
+        lift_open_items(subtree, subtree_annotations, cx, collected);
     }
 }
 
@@ -492,6 +505,66 @@ mod tests {
     }
 
     #[test]
+    fn task_tags_match_ordinary_rendering_in_tight_and_loose_lists() {
+        for markdown in [
+            "- [ ] parent {Travel, Buy} *{work}*\n  - plain {literal}\n  - [ ] child {BUY}\n",
+            "- [ ] parent {Travel}\n\n  second paragraph {Buy}\n\n  - plain {literal}\n  - [ ] child {work}\n",
+        ] {
+            let rendered = render::render_page(
+                &page("page.md"),
+                markdown,
+                &Site::default(),
+                &Diagrams::new(),
+            );
+            let items = collect_from(markdown);
+            assert_eq!(items.len(), 1);
+            // The normal page has only its filename and enclosing list in addition
+            // to the same task subtree; collection merely collapses line breaks.
+            let start = rendered.html.find("<li class=\"ohm-task\"").unwrap();
+            let end = rendered.html.rfind("</li>").unwrap() + "</li>".len();
+            assert_eq!(items[0], rendered.html[start..end].replace('\n', " "));
+            assert!(items[0].contains("plain {literal}"));
+            assert!(!items[0].contains("{Travel"));
+        }
+    }
+
+    #[test]
+    fn tag_annotations_follow_pruned_and_independently_lifted_subtrees() {
+        let items = collect_from(
+            "- [ ] parent {parent}\n  - [x] done {done}\n    - [ ] grandchild {grandchild}\n      - [x] done again {lost}\n        - [ ] deep {deep}\n  - [ ] sibling {sibling}\n",
+        );
+        assert_eq!(items.len(), 3);
+        for (index, expected) in [
+            (0, vec!["parent", "sibling"]),
+            (1, vec!["grandchild"]),
+            (2, vec!["deep"]),
+        ] {
+            for label in expected {
+                assert!(
+                    items[index].contains(&format!(r#"data-ohm-tags="[&quot;{label}&quot;]""#)),
+                    "{}",
+                    items[index]
+                );
+            }
+            assert!(!items[index].contains("{done}"));
+            assert!(!items[index].contains("{lost}"));
+            assert!(!items[index].contains('\n'));
+        }
+        assert_eq!(items[0].matches("class=\"ohm-task-tags\"").count(), 2);
+        assert_eq!(items[1].matches("class=\"ohm-task-tags\"").count(), 1);
+        assert_eq!(items[2].matches("class=\"ohm-task-tags\"").count(), 1);
+    }
+
+    #[test]
+    fn parent_badges_survive_removing_the_entire_nested_list() {
+        let items = collect_from("- [ ] parent {a}\n  - [x] child {b}\n");
+        assert_eq!(items.len(), 1);
+        assert!(items[0].contains(r#"class="ohm-task-tag">a</span>"#));
+        assert!(!items[0].contains("<ul>"));
+        assert!(!items[0].contains("child"));
+    }
+
+    #[test]
     fn r12_6_fragment_links_point_at_the_items_own_page() {
         let collected = collect(
             &page("guides/a.md"),
@@ -560,8 +633,43 @@ mod tests {
         let out = appendix(&site, &collected, false);
         assert_eq!(
             out,
-            "## [\\[Weird\\] \\<b\\>](<we%23ird/[x] 100%25.md>)\n\n<ul><li>x</li></ul>\n\n"
+            "<section data-ohm-todo-group>\n\n## [\\[Weird\\] \\<b\\>](<we%23ird/[x] 100%25.md>)\n\n<ul><li>x</li></ul>\n\n</section>\n\n"
         );
+    }
+
+    #[test]
+    fn appendix_wrappers_preserve_generated_headings_and_outline() {
+        let mut source = page("notes.md");
+        source.title = "Source Notes".to_string();
+        let mut site = Site {
+            pages: vec![source],
+            ..Site::default()
+        };
+        site.by_source
+            .insert("notes.md".to_string(), SourceKind::Page(0));
+        let collected = vec![Collected {
+            html_items: collect_from("- [ ] work {travel}\n"),
+            assets: Vec::new(),
+        }];
+        for appended_heading in [false, true] {
+            let markdown = appendix(&site, &collected, appended_heading);
+            let rendered =
+                render::render_page(&page("TODO.md"), &markdown, &site, &Diagrams::new());
+            assert_eq!(rendered.outline.len(), if appended_heading { 2 } else { 1 });
+            assert_eq!(rendered.outline.last().unwrap().id, "source-notes");
+            assert!(rendered.html.contains("<section data-ohm-todo-group>"));
+            assert_eq!(
+                rendered.html.contains("data-ohm-todo-collected"),
+                appended_heading
+            );
+            assert!(rendered.html.contains(r#"href="notes.html""#));
+            assert!(
+                rendered
+                    .html
+                    .contains(r#"data-ohm-tags="[&quot;travel&quot;]""#)
+            );
+            assert!(rendered.warnings.is_empty());
+        }
     }
 
     #[test]

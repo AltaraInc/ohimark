@@ -312,7 +312,16 @@ pub(crate) fn shell_with_stylesheets(
     out.push_str("</nav>\n");
     out.push_str("</aside>\n");
     out.push_str("<main class=\"ohm-main\">\n");
-    out.push_str("<article class=\"ohm-content\">");
+    let is_todo_page = site.todo.is_some_and(|todo_index| {
+        site.pages
+            .get(todo_index)
+            .is_some_and(|todo_page| todo_page.target == page.target)
+    });
+    if is_todo_page {
+        out.push_str("<article class=\"ohm-content\" data-ohm-todo>");
+    } else {
+        out.push_str("<article class=\"ohm-content\">");
+    }
     out.push_str(body);
     out.push_str("</article>\n");
     out.push_str("</main>\n");

@@ -9,6 +9,7 @@ pub mod links;
 pub mod model;
 pub mod plan;
 pub mod render;
+mod task_tags;
 pub mod theme;
 pub mod todo;
 

@@ -24,6 +24,20 @@ fn position(haystack: &str, needle: &str) -> usize {
         .unwrap_or_else(|| panic!("`{needle}` not found in:\n{haystack}"))
 }
 
+/// Return the generated `<section>` carrying `marker`, including its rendered content.
+fn marked_section<'a>(html: &'a str, marker: &str) -> &'a str {
+    let marker_position = position(html, marker);
+    let start = html[..marker_position]
+        .rfind("<section")
+        .unwrap_or_else(|| panic!("`{marker}` is not inside a section: {html}"));
+    let end = marker_position
+        + html[marker_position..]
+            .find("</section>")
+            .unwrap_or_else(|| panic!("section for `{marker}` is not closed: {html}"))
+        + "</section>".len();
+    &html[start..end]
+}
+
 /// R12.1: without `--todo`, no TODO page is generated and an existing `TODO.md`
 /// renders with nothing appended.
 #[test]
@@ -55,6 +69,10 @@ fn r12_1_without_the_flag_nothing_is_collected() {
     let todo = common::read_built(&site.join("TODO.html"));
     let body = common::article_body(&todo);
     assert!(
+        !todo.contains("<article class=\"ohm-content\" data-ohm-todo>"),
+        "without --todo an ordinary TODO.md is not a final collection page"
+    );
+    assert!(
         !body.contains("Collected Tasks"),
         "nothing appended: {body}"
     );
@@ -82,6 +100,10 @@ fn r12_3_and_r12_5_synthetic_page_lists_tasks_under_file_headings() {
 
     let todo = common::read_built(&site.join("TODO.html"));
     assert!(common::page_title(&todo).starts_with("TODO "));
+    assert!(
+        todo.contains("<article class=\"ohm-content\" data-ohm-todo>"),
+        "the synthetic TODO page is marked"
+    );
     let body = common::article_body(&todo);
 
     assert!(body.contains(">TODO</h1>"), "synthetic h1: {body}");
@@ -118,6 +140,29 @@ fn r12_3_and_r12_5_synthetic_page_lists_tasks_under_file_headings() {
         "no directory heading: {body}"
     );
 
+    assert_eq!(
+        body.matches("data-ohm-todo-group").count(),
+        3,
+        "one generated group per source: {body}"
+    );
+    let first_group = marked_section(body, "data-ohm-todo-group");
+    assert!(
+        first_group.contains("<h2"),
+        "rendered heading: {first_group}"
+    );
+    assert!(
+        first_group.contains("<ul"),
+        "rendered task list: {first_group}"
+    );
+    assert!(
+        first_group.contains("alpha task"),
+        "rendered task: {first_group}"
+    );
+    assert!(
+        !first_group.contains("- [ ] alpha task"),
+        "group contains rendered HTML rather than source Markdown: {first_group}"
+    );
+
     assert!(
         !body.contains("alpha done"),
         "checked items are not collected"
@@ -129,6 +174,10 @@ fn r12_3_and_r12_5_synthetic_page_lists_tasks_under_file_headings() {
     assert!(!body.contains(">X<"), "a file with no task list is skipped");
 
     let index = common::read_built(&site.join("index.html"));
+    assert!(
+        !index.contains("<article class=\"ohm-content\" data-ohm-todo>"),
+        "an ordinary page is not the final TODO page"
+    );
     assert!(
         common::attr_values(&index, "href").contains(&"TODO.html"),
         "the TODO page must be in the sidebar"
@@ -173,6 +222,10 @@ fn r12_4_existing_todo_without_collected_tasks_renders_as_usual() {
 
     let todo = common::read_built(&site.join("TODO.html"));
     let body = common::article_body(&todo);
+    assert!(
+        todo.contains("<article class=\"ohm-content\" data-ohm-todo>"),
+        "the TODO page is marked even when it has no appendix"
+    );
     assert!(body.contains("own task"), "own content: {body}");
     assert!(!body.contains("Collected Tasks"), "no section: {body}");
     assert!(!body.contains("No open tasks"), "no message: {body}");
@@ -196,6 +249,10 @@ fn r12_4_existing_todo_gets_an_appended_section_without_its_own_tasks() {
 
     let todo = common::read_built(&site.join("TODO.html"));
     assert!(common::page_title(&todo).starts_with("Roadmap "));
+    assert!(
+        todo.contains("<article class=\"ohm-content\" data-ohm-todo>"),
+        "the existing TODO page is marked"
+    );
     let body = common::article_body(&todo);
     assert_eq!(
         body.matches("own task").count(),
@@ -206,6 +263,16 @@ fn r12_4_existing_todo_gets_an_appended_section_without_its_own_tasks() {
     let section = position(body, ">Collected Tasks</h1>");
     let readme = position(body, "readme task");
     assert!(own < section && section < readme, "appended after: {body}");
+    assert!(
+        body.contains("data-ohm-todo-collected"),
+        "appendix wrapper: {body}"
+    );
+    let group = marked_section(body, "data-ohm-todo-group");
+    assert!(group.contains("<h2"), "group heading is rendered: {group}");
+    assert!(
+        group.contains("<ul"),
+        "group task list is rendered: {group}"
+    );
     assert!(
         body.contains("nested todo task"),
         "a TODO.md in a subdirectory is collected like any page: {body}"
@@ -326,6 +393,10 @@ fn r12_4_root_todo_file_collects_into_index() {
 
     assert!(!site.join("TODO.html").exists(), "no second TODO page");
     let index = common::read_built(&site.join("index.html"));
+    assert!(
+        index.contains("<article class=\"ohm-content\" data-ohm-todo>"),
+        "a TODO selected as root is marked at index.html"
+    );
     let body = common::article_body(&index);
     assert_eq!(
         body.matches("own task").count(),
@@ -597,4 +668,189 @@ fn r12_4_unclosed_constructs_in_todo_do_not_swallow_the_section() {
             "{tail:?}: the outline covers both parts"
         );
     }
+}
+
+/// Task tags render on ordinary pages, while protected and non-task brace groups remain prose.
+#[test]
+fn task_tags_render_on_ordinary_pages() {
+    let dir = TempDir::new().expect("create dir");
+    common::write_tree(
+        dir.path(),
+        &[
+            (
+                "README.md",
+                r#"# Home {heading}
+
+Outside {outside}.
+
+- [ ] Plan a trip { Travel, , buy, travel }
+- [ ] Budget {R&D's Travel}
+- [ ] Code `{code}` and [link {link}](other.md) plus ![image {image}](pixel.png)
+- [ ] escaped \{escaped\}, empty {}, nested {{nested}}, malformed {unfinished
+- [ ] HTML <span data-value="{attribute}">inside {eligible}</span>
+- [ ] Comment <!-- {payload} -->
+"#,
+            ),
+            ("other.md", "# Other\n"),
+            ("pixel.png", "image"),
+        ],
+    );
+    let out = TempDir::new().expect("create out");
+    let site = build(dir.path(), &out, &[]);
+
+    let index = common::read_built(&site.join("index.html"));
+    let body = common::article_body(&index);
+    assert!(
+        body.contains("data-ohm-tags=\"[&quot;travel&quot;,&quot;buy&quot;]\""),
+        "canonical JSON keys and HTML-escaped quotes: {body}"
+    );
+    assert!(
+        body.contains("data-ohm-tags=\"[&quot;r&amp;d&#39;s travel&quot;]\""),
+        "author tag text is escaped in JSON metadata: {body}"
+    );
+    assert!(
+        body.contains("data-ohm-tags=\"[&quot;eligible&quot;]\""),
+        "text between inline HTML events remains task prose: {body}"
+    );
+    assert!(
+        body.contains("class=\"ohm-task-tags\""),
+        "badge group: {body}"
+    );
+    assert!(
+        body.contains("<li class=\"ohm-task\">"),
+        "an untagged task keeps the original opening tag: {body}"
+    );
+    assert!(
+        body.contains(">Travel</span>"),
+        "first spelling is retained: {body}"
+    );
+    assert!(
+        body.contains("R&amp;D&#39;s Travel</span>"),
+        "badge text is escaped: {body}"
+    );
+    assert!(
+        body.contains("class=\"ohm-task-tag\">eligible</span>"),
+        "HTML prose tag: {body}"
+    );
+    assert_eq!(
+        body.matches("class=\"ohm-task-tag\"").count(),
+        4,
+        "one badge per unique tag: {body}"
+    );
+    assert_eq!(
+        body.matches("data-ohm-tags=").count(),
+        3,
+        "only the three valid task groups are recognized: {body}"
+    );
+    for literal in [
+        "{heading}",
+        "{outside}",
+        "<code>{code}</code>",
+        "link {link}</a>",
+        "alt=\"image {image}\"",
+        "{escaped}",
+        "{}",
+        "{{nested}}",
+        "{unfinished",
+        "data-value=\"{attribute}\"",
+        "<!-- {payload} -->",
+    ] {
+        assert!(
+            body.contains(literal),
+            "protected literal `{literal}`: {body}"
+        );
+    }
+    assert!(
+        !index.contains("data-ohm-todo"),
+        "a normal page has no final TODO scope"
+    );
+    assert!(
+        !body.contains("Filter by tags"),
+        "ordinary pages have no TODO filtering control"
+    );
+}
+
+/// The TODO source and collected tasks share tag rendering, with ownership kept per item.
+#[test]
+fn task_tags_render_on_collected_tasks_with_nested_ownership() {
+    let dir = TempDir::new().expect("create dir");
+    common::write_tree(
+        dir.path(),
+        &[
+            (
+                "README.md",
+                "# Home\n\n- [ ] Source parent {Travel}\n  - [ ] Source child {Buy}\n  - [x] checked child {Hidden}\n- [x] checked source {Private}\n",
+            ),
+            (
+                "TODO.md",
+                "# Roadmap\n\n- [x] Already done {Personal}\n- [ ] Buy train {Travel}\n",
+            ),
+        ],
+    );
+    let out = TempDir::new().expect("create out");
+    let site = build(dir.path(), &out, &["--todo"]);
+
+    let home = common::read_built(&site.join("index.html"));
+    let home_body = common::article_body(&home);
+    let todo = common::read_built(&site.join("TODO.html"));
+    let body = common::article_body(&todo);
+    assert!(
+        home_body.contains("data-ohm-tags=\"[&quot;travel&quot;]\""),
+        "ordinary task metadata: {home_body}"
+    );
+    assert!(
+        todo.contains("<article class=\"ohm-content\" data-ohm-todo>"),
+        "only the final TODO page gets the filtering scope"
+    );
+    assert!(
+        body.contains("data-ohm-todo-collected"),
+        "appendix wrapper: {body}"
+    );
+    assert!(
+        body.contains("Already done"),
+        "checked TODO-owned tasks remain: {body}"
+    );
+    assert!(
+        body.contains("data-ohm-tags=\"[&quot;personal&quot;]\""),
+        "checked TODO-owned task metadata: {body}"
+    );
+    assert!(
+        body.contains("data-ohm-tags=\"[&quot;travel&quot;]\""),
+        "unchecked TODO-owned and collected tags are rendered: {body}"
+    );
+    assert!(
+        body.contains("Source child"),
+        "unchecked nested task is kept: {body}"
+    );
+    assert!(
+        !body.contains("checked child") && !body.contains("checked source"),
+        "checked source tasks are excluded from collection: {body}"
+    );
+    let group = marked_section(body, "data-ohm-todo-group");
+    let parent = position(group, "Source parent");
+    let parent_badge = position(group, ">Travel</span>");
+    let child = position(group, "Source child");
+    assert!(
+        parent < parent_badge && parent_badge < child,
+        "the parent's own badge follows its label and precedes its child: {group}"
+    );
+    let parent_li = group[..parent]
+        .rfind("<li")
+        .expect("parent list item opening tag");
+    let parent_open_end = group[parent_li..]
+        .find('>')
+        .expect("parent list item opening tag is closed");
+    let parent_item = &group[parent_li..parent_li + parent_open_end + 1];
+    assert!(
+        parent_item.contains("data-ohm-tags=\"[&quot;travel&quot;]\""),
+        "parent owns only its own tag: {parent_item}"
+    );
+    assert!(
+        !parent_item.contains("buy"),
+        "child tags do not leak to the parent: {parent_item}"
+    );
+    assert!(
+        group.contains("data-ohm-tags=\"[&quot;buy&quot;]\""),
+        "nested task keeps its own tag: {group}"
+    );
 }

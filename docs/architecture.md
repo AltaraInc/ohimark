@@ -52,6 +52,8 @@ graph LR
   plan -->|"builds Site"| model
   plan -->|"casefolds paths"| links
   render -->|"resolves hrefs"| links
+  render -->|"renders task tags"| task_tags
+  todo -->|"renders task tags"| task_tags
   render -->|"wraps body in shell"| theme
   render -->|"reads Site"| model
   emit -->|"reads Site"| model
@@ -63,12 +65,13 @@ graph LR
 | `model` | shared domain types, errors, and the warning sink; no I/O | `SourceRel`, `TargetPath`, `Page`, `Site`, `NavNode`, `Warnings` |
 | `plan` | ignore-aware walk, `--exclude` overrides, source-to-target mapping, collision detection, root-file resolution, titles, nav tree | `plan()` |
 | `render` | Markdown event stream to HTML; anchors, outline, code fences, Mermaid | `render_page()`, `render_part()` |
+| `task_tags` | recognizes tag groups in a task item's own paragraph prose and renders badges plus filter metadata | shared task-tag parser and renderer |
 | `links` | relative reference resolution, plus the POSIX path helpers it needs | `resolve()`, `fold()`, `normpath()`, `relpath()` |
-| `theme` | page shell, sidebar, outline rail; minimal base CSS and JS; embedded presets; optional theme and custom stylesheet links | `shell()`, `STYLE_CSS`, `APP_JS` |
+| `theme` | page shell, sidebar, outline rail; marks the final TODO article; minimal base CSS and JS; embedded presets; optional theme and custom stylesheet links | `shell()`, `STYLE_CSS`, `APP_JS` |
 | `emit` | CSS collision preflight, temp staging, preset and custom stylesheet copies, referenced asset copy, move into `--out` | `emit()` |
-| `todo` | `--todo`: lifts open task items out of every page and appends them to the root TODO page | `collect()`, `render_page()` |
+| `todo` | `--todo`: lifts open task items out of every page, groups them by source, and appends them to the root TODO page | `collect()`, `render_page()` |
 
-Eight modules and a `lib.rs` that sequences them. Discovery lives in `plan` because a
+Nine modules and a `lib.rs` that sequences them. Discovery lives in `plan` because a
 source set is only useful once it has been mapped to targets; Mermaid lives in `render`
 because it is one more fence handler; the path helpers live in `links` because resolution
 is what needs them.
@@ -90,13 +93,18 @@ root. Code that constructs either struct with a literal must provide both fields
 
 ## Rendering a page
 
-One pass over the Markdown event stream, with five interceptions:
+One pass over the Markdown event stream, with six interceptions:
 
 1. **Link and image tags** go to `links::resolve`. An image additionally registers a referenced asset, which is what causes that file to be copied.
 2. **Headings** receive an anchor identifier, slugged from the text and deduplicated within the page by a numeric suffix, and are recorded for the outline.
 3. **A fence tagged `mermaid`** is rendered to SVG, alongside the retained source.
 4. **Any other fence** becomes `<pre><code class="language-…">` with its content escaped and otherwise verbatim.
 5. **Task-list items** are emitted with a class on the `<li>` so the stylesheet can suppress the marker. This is determined by looking ahead, since the checkbox sits inside a paragraph in loose lists.
+6. **Task tags** are recognized from source-backed inline events in a task item's own paragraph prose. The shared helper removes valid brace groups, renders escaped badges at the end of the first label paragraph, and attaches lowercase JSON keys to tagged tasks. Ordinary pages and collected tasks use the same helper; the collector keeps item boundaries until it has pruned checked descendants, so nested task text cannot leak into its parent's tags.
+
+Each static badge carries `data-ohm-tag-color`: FNV-1a32 of the lowercase key's UTF-8
+bytes modulo eight selects a stable palette slot. CSS gives tags square corners and
+faded theme colors; badge colors need no browser state or JavaScript.
 
 `theme::shell` then wraps the result, taking the nav tree, the page's outline and its body.
 It retains its public signature and emits the base-only page shell. During output assembly,
@@ -176,7 +184,9 @@ and the nav like any other page.
 After the render pass, `todo` re-parses every other page with the same parser options
 and lifts each unchecked task item out whole, dropping any checked task items nested in
 it. An unchecked item inside a dropped subtree is lifted on its own, right after the item
-it was dropped from, so none is lost. Links and images inside a lifted item are resolved
+it was dropped from, so none is lost. Each source heading and its rendered task list are
+wrapped in a `data-ohm-todo-group` section; the optional `Collected Tasks` appendix has a
+`data-ohm-todo-collected` wrapper. Links and images inside a lifted item are resolved
 from its own page's source directory but against the TODO page's target directory, and
 the assets they hit are recorded so `emit` copies them. A fragment link is pointed back at
 the item's own page, a missing target is re-based lexically, and a footnote reference
@@ -197,6 +207,19 @@ diagram ids stay unique across both; their HTML and outlines are joined. The gen
 headings get anchors and outline entries, and their links resolve normally. The re-render
 replaces the first one, warnings included, so nothing is reported twice. Nothing is
 written to `DIR`: the appendix exists only in memory.
+
+The shell marks only the planned TODO page's article with `data-ohm-todo`, using its
+unique output target so a TODO page selected as `--root` is marked after it becomes
+`index.html`. The browser script uses that marker to add one compact search line with
+up to two visible removable selected tags, a `+N` overflow count, Clear and an `N/T`
+direct-match count. It searches available tag names using exact, prefix, substring and
+subsequence matching, ignoring case and accents, in a popup limited to eight rows.
+Typing alone leaves task visibility unchanged; pointer selection or Arrow Up/Down and
+Enter adds a tag, and Escape closes the popup. The catalog, suggestions and selections
+copy labels and palette slots from each task's own static badges. Selected tags filter tasks with
+OR matching while retaining matching nested tasks' ancestors; no selection shows all
+tasks. Empty generated groups hide with their outline links. Selection resets on reload.
+The complete list and badges remain available without scripting.
 
 ## Mermaid
 

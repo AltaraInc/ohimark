@@ -159,8 +159,15 @@ pub fn page_title(html: &str) -> &str {
 /// rendered body, excluding the sidebar and outline. Scope content assertions through this
 /// rather than the whole document, for the same reason as `page_title`.
 pub fn article_body(html: &str) -> &str {
-    let open = "<article class=\"ohm-content\">";
-    let start = html.find(open).expect("no <article> found") + open.len();
+    let open = "<article class=\"ohm-content\"";
+    let article = html
+        .find(open)
+        .unwrap_or_else(|| panic!("no article with class ohm-content found in:\n{html}"));
+    let start = article
+        + html[article..]
+            .find('>')
+            .expect("ohm-content article opening tag is not closed")
+        + 1;
     let rest = &html[start..];
     let end = rest.find("</article>").expect("no </article> found");
     &rest[..end]

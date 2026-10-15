@@ -450,6 +450,298 @@ img {
   list-style: none;
 }
 
+.ohm-task-tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  max-width: calc(100% - 0.4rem);
+  margin-inline-start: 0.4rem;
+  vertical-align: baseline;
+}
+
+.ohm-task-tag,
+.ohm-todo-selected-tag {
+  box-sizing: border-box;
+  max-width: 100%;
+  border: 1px solid var(--ohm-border);
+  border-radius: 0;
+  background: var(--ohm-bg);
+  color: var(--ohm-fg);
+  font-family: inherit;
+}
+
+/* A stable, subdued palette follows the page surface in either colour mode. */
+[data-ohm-tag-color="0"] { --ohm-tag-hue: 205; }
+[data-ohm-tag-color="1"] { --ohm-tag-hue: 145; }
+[data-ohm-tag-color="2"] { --ohm-tag-hue: 35; }
+[data-ohm-tag-color="3"] { --ohm-tag-hue: 275; }
+[data-ohm-tag-color="4"] { --ohm-tag-hue: 355; }
+[data-ohm-tag-color="5"] { --ohm-tag-hue: 175; }
+[data-ohm-tag-color="6"] { --ohm-tag-hue: 65; }
+[data-ohm-tag-color="7"] { --ohm-tag-hue: 325; }
+
+.ohm-task-tag[data-ohm-tag-color],
+.ohm-todo-selected-tag[data-ohm-tag-color] {
+  --ohm-tag-tint: hsl(var(--ohm-tag-hue) 38% 52%);
+  border-color: color-mix(in srgb, var(--ohm-tag-tint) 28%, var(--ohm-border));
+  background: color-mix(in srgb, var(--ohm-tag-tint) 12%, var(--ohm-bg));
+}
+
+.ohm-task-tag {
+  display: inline-block;
+  padding: 0.05em 0.4em;
+  font-size: 0.8em;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.ohm-content .ohm-todo-filter {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  margin: 0 0 1.25rem;
+  color: var(--ohm-fg);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+.ohm-todo-picker {
+  position: relative;
+  flex: 0 1 30rem;
+  min-width: 0;
+}
+
+.ohm-todo-input-row {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  height: 2rem;
+  min-width: 0;
+  padding: 0 0.375rem;
+  border: 1px solid var(--ohm-border);
+  background: var(--ohm-bg);
+}
+
+.ohm-todo-input-row:focus-within {
+  border-color: var(--ohm-accent);
+  outline: 2px solid var(--ohm-accent);
+  outline-offset: 2px;
+}
+
+.ohm-todo-input-row > svg,
+.ohm-todo-filter button > svg,
+.ohm-todo-option > svg {
+  flex: none;
+  width: 0.875rem;
+  height: 0.875rem;
+  pointer-events: none;
+}
+
+.ohm-todo-input-row > svg {
+  color: var(--ohm-muted);
+}
+
+.ohm-todo-selected {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 0;
+  max-width: 48%;
+}
+
+.ohm-todo-selected-tag {
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 1.5rem;
+  max-width: 8rem;
+  height: 1.375rem;
+  padding: 0 0.25rem;
+  font-size: 0.75rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ohm-todo-selected-tag > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ohm-todo-selected-tag:hover {
+  border-color: var(--ohm-accent);
+}
+
+.ohm-todo-selected-tag:focus-visible {
+  outline: 2px solid var(--ohm-accent);
+  outline-offset: -2px;
+}
+
+.ohm-todo-search {
+  flex: 1 1 5rem;
+  width: 0;
+  min-width: 3rem;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ohm-fg);
+  font: inherit;
+  appearance: none;
+}
+
+.ohm-todo-search:focus-visible {
+  outline: none;
+}
+
+.ohm-todo-search::placeholder {
+  color: var(--ohm-muted);
+  opacity: 1;
+}
+
+.ohm-todo-search::-webkit-search-cancel-button {
+  appearance: none;
+}
+
+.ohm-todo-more,
+.ohm-todo-clear {
+  box-sizing: border-box;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  height: 1.5rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ohm-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.ohm-todo-more {
+  padding: 0 0.125rem;
+  font-size: 0.75rem;
+}
+
+.ohm-todo-clear {
+  width: 1.5rem;
+}
+
+.ohm-todo-more:hover,
+.ohm-todo-clear:hover {
+  background: var(--ohm-code-bg);
+  color: var(--ohm-fg);
+}
+
+.ohm-todo-clear:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.ohm-content .ohm-todo-filter .ohm-todo-count {
+  flex: none;
+  margin: 0;
+  color: var(--ohm-muted);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ohm-todo-popup {
+  box-sizing: border-box;
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 0.25rem);
+  inset-inline: 0;
+  max-height: 16rem;
+  padding: 0.25rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--ohm-border);
+  background: var(--ohm-bg);
+  color: var(--ohm-fg);
+  box-shadow: 0 0.25rem 0.75rem var(--ohm-shadow);
+}
+
+.ohm-content .ohm-todo-options {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ohm-content .ohm-todo-options > .ohm-todo-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0.25rem 0.375rem;
+  list-style: none;
+  cursor: pointer;
+}
+
+.ohm-todo-option--active {
+  background: var(--ohm-code-bg);
+  outline: 1px solid var(--ohm-border);
+  outline-offset: -1px;
+}
+
+.ohm-todo-option .ohm-task-tag {
+  max-width: calc(100% - 1.375rem);
+  overflow: hidden;
+  font-size: 0.75rem;
+  overflow-wrap: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ohm-todo-option > svg {
+  color: var(--ohm-accent);
+}
+
+.ohm-content .ohm-todo-popup .ohm-todo-empty,
+.ohm-content .ohm-todo-popup .ohm-todo-hint {
+  margin: 0;
+  padding: 0.375rem;
+  color: var(--ohm-muted);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.ohm-content .ohm-todo-popup .ohm-todo-hint {
+  padding-block: 0.25rem;
+}
+
+.ohm-todo-filter[hidden],
+.ohm-todo-filter [hidden] {
+  display: none !important;
+}
+
+@media (max-width: 600px) {
+  /* Keep typing from triggering automatic zoom on mobile browsers. */
+  .ohm-todo-search {
+    font-size: 1rem;
+  }
+}
+
+/* Presentation themes must not make filtered rows or groups visible again. */
+.ohm-content[data-ohm-todo] li.ohm-task[hidden],
+.ohm-content[data-ohm-todo] [data-ohm-todo-group][hidden],
+.ohm-content[data-ohm-todo] [data-ohm-todo-collected][hidden],
+.ohm-outline-item[hidden] {
+  display: none !important;
+}
+
 .ohm-content table {
   display: block;
   max-width: 100%;
