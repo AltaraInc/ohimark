@@ -92,8 +92,7 @@ fn render_nav_node(
             let group_attr = escape_html(&group_path);
             let label = escape_html(label);
             match link {
-                // R4.2: a directory whose own page's stem folds to the
-                // directory name is a link to that page.
+                // R4.2: link the same-name page first, falling back to README.
                 Some(target) => {
                     let href = links::relative_to(dir, target.as_path());
                     let (current_class, current_attr) = current_marker(*target == page.target);

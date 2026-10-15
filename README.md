@@ -2,7 +2,7 @@
 
 `ohimark` builds markdown documentation into static HTML, CSS and JS. The tool walks the directory structure from the provided root directory collecting all markdown files (while honoring the provided ignore files; e.g. `.gitignore`) and renders each markdown file to its' respective HTML page.
 
-The directory structure is respected while conducting the directory traversal; directories become anchoring points for all its' sub-directories and files. If a markdown file with the same name as the directory (case-insensitive) is found within the directory, then that file acts as the root page instead.
+The directory structure is reflected in navigation: directories become groups for their pages and subdirectories. A directory heading links to its own same-name Markdown page when one exists (case-insensitive); otherwise, it links to a case-insensitive `README.md` or `README.markdown` match. The selected page appears on the heading instead of again among the directory's child pages.
 
 ## Rendering
 
@@ -93,7 +93,7 @@ the source CSS file.
 
 ## Navigation, titles, and ignoring
 
-- Navigation mirrors the directory structure. A directory holding a markdown file whose name matches the directory (case-insensitively) becomes a link to that page; otherwise it is a group label with no page of its own.
+- Navigation mirrors the directory structure. A directory heading links to an immediate Markdown page whose stem matches the directory name (case-insensitive); if none exists, it links to an immediate case-insensitive `README.md` or `README.markdown` match. The same-name page has priority, and the selected page appears only on the heading, not again among child pages. Other pages remain reachable under the directory; without either candidate, it stays an unlinked group.
 - Within a directory, its own pages come first in case-insensitive ascending order, followed by its subdirectories in the same order.
 - Page titles: the first Markdown ATX heading (`^\s*#\s+...`, matched
   line-by-line, not markdown-aware) in the file; if none is found, the

@@ -528,12 +528,17 @@ fn sorted_groups(mut children: NavChildren) -> NavGroups {
 fn build_group(name: String, entries: Vec<(usize, Vec<String>)>, pages: &[Page]) -> NavNode {
     let (mut own, children_by_name) = partition_entries(entries);
 
-    // R4.2: a directory whose own page's stem casefolds to the directory's
-    // own name becomes this node's link, and is not also listed as a child.
+    // R4.2: a directory's own page whose stem casefolds to its name takes
+    // priority; otherwise its immediate README becomes the link. The selected
+    // landing page is not also listed as a child.
     let name_folded = links::fold(&name);
     let link_position = own
         .iter()
-        .position(|&index| links::fold(stem_of(&pages[index].source)) == name_folded);
+        .position(|&index| links::fold(stem_of(&pages[index].source)) == name_folded)
+        .or_else(|| {
+            own.iter()
+                .position(|&index| links::fold(stem_of(&pages[index].source)) == "readme")
+        });
     let link = link_position.map(|position| pages[own.remove(position)].target.clone());
 
     own.sort_by_key(|&index| links::fold(stem_of(&pages[index].source)));

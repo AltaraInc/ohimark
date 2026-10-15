@@ -5,6 +5,15 @@ mod common;
 
 use tempfile::TempDir;
 
+/// The sidebar navigation, excluding page content and the separate outline.
+fn sidebar_nav(html: &str) -> &str {
+    let open = "<nav class=\"ohm-nav\" aria-label=\"Site navigation\">";
+    let start = html.find(open).expect("site navigation must exist") + open.len();
+    let rest = &html[start..];
+    let end = rest.find("</nav>").expect("site navigation must close");
+    &rest[..end]
+}
+
 /// R1.1: every file whose extension casefolds to `md` or `markdown` becomes a page,
 /// regardless of the case of the extension.
 #[test]
@@ -382,6 +391,7 @@ fn r4_2_directory_page_matching_dir_name_becomes_the_nav_link() {
         &[
             ("README.md", "# Root\n"),
             ("docs/docs.md", "# Docs\n"),
+            ("docs/README.markdown", "# README child\n"),
             ("docs/guide.md", "# Guide\n"),
         ],
     );
@@ -396,9 +406,100 @@ fn r4_2_directory_page_matching_dir_name_becomes_the_nav_link() {
     assert!(result.success(), "build failed: {}", result.stderr);
 
     let index = common::read_built(&out_path.join("index.html"));
+    let nav = sidebar_nav(&index);
     assert!(
-        index.contains("<a class=\"ohm-nav-link ohm-nav-label\" href=\"docs/docs.html\">docs</a>"),
+        nav.contains("<a class=\"ohm-nav-link ohm-nav-label\" href=\"docs/docs.html\">docs</a>"),
         "docs node must link to docs/docs.html: {index}"
+    );
+    assert_eq!(nav.matches("href=\"docs/docs.html\"").count(), 1);
+    assert_eq!(nav.matches("href=\"docs/README.html\"").count(), 1);
+    assert!(
+        nav.contains("href=\"docs/README.html\">README child</a>"),
+        "the unselected README must remain a child page: {nav}"
+    );
+}
+
+/// R4.2: a directory README becomes its heading link and is not repeated as a child page.
+#[test]
+fn r4_2_readme_directory_page_becomes_nav_link_once_without_child() {
+    let dir = TempDir::new().expect("create dir");
+    common::write_tree(
+        dir.path(),
+        &[
+            ("README.md", "# Root\n"),
+            ("docs/README.md", "# Docs overview\n"),
+        ],
+    );
+    let out = TempDir::new().expect("create out");
+    let out_path = out.path().join("site");
+
+    let result = common::run([
+        dir.path().to_str().unwrap(),
+        "--out",
+        out_path.to_str().unwrap(),
+    ]);
+    assert!(result.success(), "build failed: {}", result.stderr);
+
+    let index = common::read_built(&out_path.join("index.html"));
+    let nav = sidebar_nav(&index);
+    assert_eq!(nav.matches("href=\"docs/README.html\"").count(), 1);
+    assert!(
+        nav.contains(
+            "<li class=\"ohm-nav-group\"><details class=\"ohm-nav-details\" data-ohm-nav-group=\"docs\" open><summary class=\"ohm-nav-summary\"><a class=\"ohm-nav-link ohm-nav-label\" href=\"docs/README.html\">docs</a></summary><ul class=\"ohm-nav-list\"></ul></details></li>"
+        ),
+        "README landing page must keep the native details/summary group markup: {nav}"
+    );
+    assert!(
+        !nav.contains(">Docs overview</a>"),
+        "the README title must not appear as a redundant child page: {nav}"
+    );
+}
+
+/// R4.2: README matching is case-insensitive, supports both Markdown extensions, and recurses.
+#[test]
+fn r4_2_readme_directory_links_recurse_with_relative_current_links() {
+    let dir = TempDir::new().expect("create dir");
+    common::write_tree(
+        dir.path(),
+        &[
+            ("README.md", "# Root\n"),
+            ("Guides/README.MARKDOWN", "# Guides overview\n"),
+            ("Guides/API/ReAdMe.Md", "# API overview\n"),
+            ("Guides/API/reference.md", "# Reference\n"),
+        ],
+    );
+    let out = TempDir::new().expect("create out");
+    let out_path = out.path().join("site");
+
+    let result = common::run([
+        dir.path().to_str().unwrap(),
+        "--out",
+        out_path.to_str().unwrap(),
+    ]);
+    assert!(result.success(), "build failed: {}", result.stderr);
+
+    let index = common::read_built(&out_path.join("index.html"));
+    let root_nav = sidebar_nav(&index);
+    assert_eq!(root_nav.matches("href=\"Guides/README.html\"").count(), 1);
+    assert_eq!(
+        root_nav.matches("href=\"Guides/API/ReAdMe.html\"").count(),
+        1
+    );
+    assert!(root_nav.contains("href=\"Guides/API/ReAdMe.html\">API</a>"));
+
+    let landing = common::read_built(&out_path.join("Guides/README.html"));
+    let landing_nav = sidebar_nav(&landing);
+    assert_eq!(landing_nav.matches("href=\"README.html\"").count(), 1);
+    assert!(
+        landing_nav.contains(
+            "class=\"ohm-nav-link ohm-nav-label ohm-nav-link--current\" aria-current=\"page\" href=\"README.html\">Guides</a>"
+        ),
+        "the landing page heading must carry the current marker and relative URL: {landing_nav}"
+    );
+    assert_eq!(landing_nav.matches("href=\"API/ReAdMe.html\"").count(), 1);
+    assert!(
+        landing_nav.contains("href=\"API/ReAdMe.html\">API</a>"),
+        "nested heading URLs must be relative to the landing page: {landing_nav}"
     );
 }
 

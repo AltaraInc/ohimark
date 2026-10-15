@@ -157,8 +157,8 @@ pub enum NavNode {
         /// Where the page is written in the output tree.
         target: TargetPath,
     },
-    /// A directory. `link` is `Some` when the directory holds a page whose stem
-    /// casefolds to the directory name (R4.2); otherwise it is a plain label (R4.3).
+    /// A directory. `link` is `Some` for its same-name page, or its README page
+    /// when no same-name page exists (R4.2); otherwise it is a plain label (R4.3).
     Group {
         /// The directory's display label.
         label: String,
