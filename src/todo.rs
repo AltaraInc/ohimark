@@ -20,6 +20,7 @@ use crate::links::{self, Resolved};
 use crate::model::{Page, Site, SourceRel, TargetPath, escape_html};
 use crate::render::{self, Diagrams, PageIds, Rendered};
 use crate::task_tags::{self, Annotation};
+use crate::theme::page_time_attrs;
 
 /// The `<li>` a task item opens with, exactly as `render` emits it (R7.8).
 #[cfg(test)]
@@ -59,8 +60,10 @@ pub struct Collected {
 /// empty appendix is not rendered at all, so with no open task collected the page comes
 /// out as it does without `--todo` (R12.4, R12.5).
 ///
-/// Collection runs in parallel and preserves page order (R11.3). Its warnings are
-/// discarded: each page's own render already reported every unresolved reference.
+/// Collection runs in parallel and preserves page order in its result (R11.3). The
+/// appendix keeps that order and gives each group the same safe timestamp attributes as
+/// the sidebar when available. Its warnings are discarded: each page's own render
+/// already reported every unresolved reference.
 #[must_use]
 pub fn render_page(
     site: &Site,
@@ -163,9 +166,10 @@ fn lift_open_items(
 
 /// Assemble the Markdown appended to the TODO page: for each file with open tasks, in
 /// page order (R1.6), a linked file heading, then that file's open tasks as one raw-HTML
-/// list (R12.5). Empty when no file has an open task, the `Collected Tasks` heading
-/// included, so nothing is rendered for them (R12.5). `collected` is parallel to
-/// `site.pages`.
+/// list (R12.5). Each group receives the same safe created/updated timestamp attributes
+/// as the sidebar when available. Empty when no file has an open task, the `Collected
+/// Tasks` heading included, so nothing is rendered for them (R12.5). `collected` is
+/// parallel to `site.pages`.
 fn appendix(site: &Site, collected: &[Collected], appended_heading: bool) -> String {
     if collected.iter().all(|page| page.html_items.is_empty()) {
         return String::new();
@@ -184,8 +188,9 @@ fn appendix(site: &Site, collected: &[Collected], appended_heading: bool) -> Str
         // The destination is the source path, so the ordinary link resolution of the
         // re-render turns it into the right href (R6.1).
         let dest = percent_encoding::utf8_percent_encode(page.source.as_str(), DEST_ENCODE_SET);
+        let time_attrs = page_time_attrs(Some(&page.times));
         out.push_str(&format!(
-            "<section data-ohm-todo-group>\n\n## [{}](<{dest}>)\n\n<ul>{}</ul>\n\n</section>\n\n",
+            "<section data-ohm-todo-group{time_attrs}>\n\n## [{}](<{dest}>)\n\n<ul>{}</ul>\n\n</section>\n\n",
             escape_markdown(&page.title),
             page_collected.html_items.concat()
         ));
@@ -394,7 +399,8 @@ fn resolve_event<'a>(event: Event<'a>, cx: &Context, assets: &mut Vec<SourceRel>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::SourceKind;
+    use crate::model::{PageTimes, SourceKind};
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     fn page(source: &str) -> Page {
         let source = SourceRel::new(source);
@@ -635,6 +641,96 @@ mod tests {
             out,
             "<section data-ohm-todo-group>\n\n## [\\[Weird\\] \\<b\\>](<we%23ird/[x] 100%25.md>)\n\n<ul><li>x</li></ul>\n\n</section>\n\n"
         );
+    }
+
+    #[test]
+    fn r12_5_file_groups_keep_page_order_and_timestamps() {
+        let page_at = |source: &str,
+                       title: &str,
+                       created: Option<SystemTime>,
+                       modified: Option<SystemTime>| {
+            let mut page = page(source);
+            page.title = title.to_string();
+            page.times = PageTimes { created, modified };
+            page
+        };
+        let site = Site {
+            pages: vec![
+                page_at(
+                    "a.md",
+                    "Alpha",
+                    Some(UNIX_EPOCH - Duration::from_millis(1500)),
+                    Some(UNIX_EPOCH),
+                ),
+                page_at("b.md", "Beta", None, None),
+                page_at(
+                    "c-empty.md",
+                    "Empty",
+                    Some(UNIX_EPOCH + Duration::from_secs(2)),
+                    Some(UNIX_EPOCH + Duration::from_secs(3)),
+                ),
+                page_at(
+                    "d.md",
+                    "Delta",
+                    Some(UNIX_EPOCH + Duration::from_secs(4)),
+                    Some(UNIX_EPOCH + Duration::from_secs(10)),
+                ),
+            ],
+            ..Site::default()
+        };
+        let collected = vec![
+            Collected {
+                html_items: vec![
+                    "<li>alpha-first</li>".to_string(),
+                    "<li>alpha-second</li>".to_string(),
+                ],
+                assets: Vec::new(),
+            },
+            Collected {
+                html_items: vec!["<li>beta</li>".to_string()],
+                assets: Vec::new(),
+            },
+            Collected::default(),
+            Collected {
+                html_items: vec!["<li>delta</li>".to_string()],
+                assets: Vec::new(),
+            },
+        ];
+        let expected_groups = [
+            (
+                "Alpha",
+                "a.md",
+                " data-ohm-created=\"-1500\" data-ohm-updated=\"0\"",
+                "<ul><li>alpha-first</li><li>alpha-second</li></ul>",
+            ),
+            ("Beta", "b.md", "", "<ul><li>beta</li></ul>"),
+            (
+                "Delta",
+                "d.md",
+                " data-ohm-created=\"4000\" data-ohm-updated=\"10000\"",
+                "<ul><li>delta</li></ul>",
+            ),
+        ];
+
+        for appended_heading in [false, true] {
+            let out = appendix(&site, &collected, appended_heading);
+            let mut search_from = 0;
+            for (title, source, attrs, items) in expected_groups {
+                let group = format!(
+                    "<section data-ohm-todo-group{attrs}>\n\n## [{title}](<{source}>)\n\n{items}\n\n</section>\n\n"
+                );
+                let offset = out[search_from..]
+                    .find(&group)
+                    .unwrap_or_else(|| panic!("missing or out-of-order group {title}: {out}"));
+                search_from += offset + group.len();
+            }
+            assert!(!out.contains("Empty"), "empty groups are omitted: {out}");
+            assert_eq!(
+                out.contains("data-ohm-todo-collected"),
+                appended_heading,
+                "appendix wrapper follows mode: {out}"
+            );
+        }
     }
 
     #[test]

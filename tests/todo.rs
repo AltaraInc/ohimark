@@ -2,7 +2,9 @@
 
 mod common;
 
+use std::fs::{File, FileTimes};
 use std::path::Path;
+use std::time::{Duration, UNIX_EPOCH};
 
 use tempfile::TempDir;
 
@@ -95,6 +97,19 @@ fn r12_3_and_r12_5_synthetic_page_lists_tasks_under_file_headings() {
             ("guides/none.md", "# None\n\n- [x] all done\n"),
         ],
     );
+    for (path, modified_secs) in [
+        ("README.md", 4_000),
+        ("a.md", 1_000),
+        ("empty/x.md", 5_000),
+        ("guides/install.md", 2_000),
+        ("guides/none.md", 3_000),
+    ] {
+        let file = File::open(dir.path().join(path)).expect("open source for timestamp");
+        file.set_times(
+            FileTimes::new().set_modified(UNIX_EPOCH + Duration::from_secs(modified_secs)),
+        )
+        .expect("set source modification time");
+    }
     let out = TempDir::new().expect("create out");
     let site = build(dir.path(), &out, &["--todo"]);
 
@@ -111,12 +126,11 @@ fn r12_3_and_r12_5_synthetic_page_lists_tasks_under_file_headings() {
 
     let alpha = position(body, r#"<a href="a.html">Alpha</a></h2>"#);
     let alpha_task = position(body, "alpha task");
-    let home = position(body, r#"<a href="index.html">Home</a></h2>"#);
-    let home_task = position(body, "home task");
     let install = position(body, r#"<a href="guides/install.html">Install</a></h2>"#);
     let install_task = position(body, "install task");
-    // Page order is by casefolded source path (R1.6): `a.md`, `guides/install.md`,
-    // `README.md`, with no regrouping by directory.
+    let home = position(body, r#"<a href="index.html">Home</a></h2>"#);
+    let home_task = position(body, "home task");
+    // These explicit mtimes deliberately differ from the casefolded source path order.
     assert!(
         alpha < alpha_task
             && alpha_task < install
@@ -145,6 +159,22 @@ fn r12_3_and_r12_5_synthetic_page_lists_tasks_under_file_headings() {
         3,
         "one generated group per source: {body}"
     );
+    for (updated, title, task) in [
+        ("1000000", "Alpha", "alpha task"),
+        ("2000000", "Install", "install task"),
+        ("4000000", "Home", "home task"),
+    ] {
+        let marker = format!("data-ohm-updated=\"{updated}\"");
+        let group = marked_section(body, &marker);
+        assert!(
+            group.lines().next().unwrap_or_default().contains(&marker),
+            "timestamp belongs to the group section: {group}"
+        );
+        assert!(
+            group.contains(&format!(">{title}</a></h2>")) && group.contains(task),
+            "updated timestamp is associated with its source group: {group}"
+        );
+    }
     let first_group = marked_section(body, "data-ohm-todo-group");
     assert!(
         first_group.contains("<h2"),

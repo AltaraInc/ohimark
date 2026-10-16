@@ -7,6 +7,8 @@ const test = require("node:test");
 const vm = require("node:vm");
 
 const script = readFileSync(join(__dirname, "../src/assets/ohimark.js"), "utf8");
+const SITE = "https://example.test/docs/index.html";
+const sortKey = (site = SITE) => "ohimark-todo-sort:" + site;
 
 // A focused DOM surface, with all filtering and outline behavior supplied by
 // the actual bundle. There is no duplicate filter implementation in the tests.
@@ -64,8 +66,15 @@ class Element {
   set id(value) { this.setAttribute("id", value); }
   get type() { return this.getAttribute("type") || ""; }
   set type(value) { this.setAttribute("type", value); }
-  get value() { return this.getAttribute("value") || ""; }
-  set value(value) { this.setAttribute("value", value); }
+  get href() { return new URL(this.getAttribute("href"), this.ownerDocument.url).href; }
+  get value() {
+    if (this.tagName === "SELECT") return this._value ?? this.children[0]?.value ?? "";
+    return this.getAttribute("value") || "";
+  }
+  set value(value) {
+    if (this.tagName === "SELECT") this._value = this.children.some((option) => option.value === value) ? value : "";
+    else this.setAttribute("value", value);
+  }
   get className() { return this.getAttribute("class") || ""; }
   set className(value) { this.setAttribute("class", value); }
   get classList() {
@@ -153,9 +162,38 @@ class Element {
   scrollIntoView(options) { this.lastScroll = options; }
 }
 
-function fixture({ scoped = true, title = true, filename = true, own = [], groups = [], collected = false, outside = [], observer = false, beforeRun } = {}) {
+class Storage {
+  constructor(entries = []) {
+    this.entries = new Map(entries);
+    this.calls = [];
+    this.writes = [];
+    this.block = new Set();
+  }
+  getItem(key) {
+    this.calls.push(["get", key]);
+    if (this.block.has("get")) throw new Error("Storage read blocked");
+    return this.entries.get(key) ?? null;
+  }
+  setItem(key, value) {
+    const call = ["set", key, value];
+    this.calls.push(call);
+    this.writes.push(call);
+    if (this.block.has("set")) throw new Error("Storage write blocked");
+    this.entries.set(key, value);
+  }
+  removeItem(key) {
+    const call = ["remove", key];
+    this.calls.push(call);
+    this.writes.push(call);
+    if (this.block.has("remove")) throw new Error("Storage removal blocked");
+    this.entries.delete(key);
+  }
+}
+
+function fixture({ scoped = true, title = true, filename = true, own = [], groups = [], collected = false, outside = [], observer = false, site = SITE, url = "https://example.test/TODO.html", storage = new Storage(), beforeRun } = {}) {
   const document = new Element("#document");
   document.ownerDocument = document;
+  document.url = url;
   document.createElement = (tag) => new Element(tag, document);
   document.createElementNS = (_, tag) => document.createElement(tag);
   document.getElementById = (id) => document.querySelector("#" + id);
@@ -168,6 +206,7 @@ function fixture({ scoped = true, title = true, filename = true, own = [], group
   };
   document.documentElement = create("html", "", document);
   document.body = create("body", "", document.documentElement);
+  if (site !== null) create("a", "ohm-brand", document.body, "Site").setAttribute("href", site);
   const article = create("article", "ohm-content", document.body);
   if (scoped) article.setAttribute("data-ohm-todo", "");
   const headings = new Map();
@@ -221,7 +260,11 @@ function fixture({ scoped = true, title = true, filename = true, own = [], group
   for (const group of groups) {
     const section = create("section", "", collectedSection || article);
     section.setAttribute("data-ohm-todo-group", "");
-    heading("h2", "group-" + group.id, section);
+    for (const field of ["created", "updated"]) {
+      if (group[field] !== undefined) section.setAttribute("data-ohm-" + field, group[field]);
+    }
+    const fileHeading = heading("h2", "group-" + group.id, section);
+    if (group.title !== undefined) fileHeading.textContent = group.title;
     populate(group.tasks, section);
     groupElements.set(group.id, section);
   }
@@ -245,22 +288,25 @@ function fixture({ scoped = true, title = true, filename = true, own = [], group
     disconnect() { this.disconnected = true; this.observed = []; }
     deliver(...elements) { this.callback(elements.map((target) => ({ target, isIntersecting: true }))); }
   }
-  const storageWrites = [];
   const window = {
     innerWidth: 1400,
-    location: { href: "https://example.test/TODO.html" },
-    sessionStorage: {
-      getItem() { return null; },
-      setItem(...args) { storageWrites.push(args); },
-      removeItem(...args) { storageWrites.push(args); },
-    },
+    location: { href: url },
+    sessionStorage: storage,
     addEventListener() {},
   };
   if (observer) window.IntersectionObserver = Observer;
-  const app = { document, article, prose, tasks, headings, groups: groupElements, collected: collectedSection, outlineRows, observers, storageWrites, window };
+  const app = { document, article, prose, tasks, headings, groups: groupElements, collected: collectedSection, outline, outlineRows, observers, storage, storageWrites: storage.writes, window };
   if (beforeRun) beforeRun(app);
   vm.runInNewContext(script, { document, window, navigator: {}, setTimeout }, { filename: "ohimark.js" });
   app.filter = document.querySelector(".ohm-todo-filter");
+  app.sortSelect = document.querySelector(".ohm-todo-sort-select");
+  app.sort = (mode) => {
+    app.sortSelect.value = mode;
+    app.sortSelect.dispatchEvent({ type: "change" });
+  };
+  app.groupOrder = () => (collectedSection || article).children.filter((element) => element.hasAttribute("data-ohm-todo-group"))
+    .map((element) => element.querySelector("h2").id.slice("group-".length));
+  app.outlineOrder = () => outline.children.map((row) => row.querySelector("a")?.getAttribute("href").slice(1) || row.id);
   app.input = app.filter?.querySelector(".ohm-todo-search");
   app.popup = app.filter?.querySelector(".ohm-todo-popup");
   app.rows = () => app.filter?.querySelectorAll(".ohm-todo-option") || [];
@@ -762,4 +808,286 @@ test("suggestions and selected chips copy valid source colors while unsafe label
   app.query(hostile);
   assert.equal(app.rows()[0].querySelector(".ohm-task-tag").children.length, 0);
   assert.equal(app.rows()[0].getAttribute("aria-selected"), "true");
+});
+
+const sortableGroups = () => [
+  { id: "first-file", title: "Zulu 10", created: "20", updated: "10", tasks: [{ id: "first-task" }] },
+  { id: "second-file", title: "alpha 10", created: "10", updated: "30", tasks: [{ id: "second-task" }] },
+  { id: "third-file", title: "Alpha 2", created: "30", updated: "20", tasks: [{ id: "third-task" }] },
+  { id: "fourth-file", title: "alpha 2", created: "30", updated: "20", tasks: [{ id: "fourth-task" }] },
+  { id: "unknown-file", title: "Beta", tasks: [{ id: "unknown-task" }] },
+];
+
+test("TODO sorting has the sidebar's seven native modes and restores initial filename order", () => {
+  const groups = sortableGroups();
+  const expected = new Map([
+    ["default", groups.map((group) => group.id)],
+    ["name-asc", ["third-file", "fourth-file", "second-file", "unknown-file", "first-file"]],
+    ["name-desc", ["first-file", "unknown-file", "second-file", "third-file", "fourth-file"]],
+    ["created-desc", ["third-file", "fourth-file", "first-file", "second-file", "unknown-file"]],
+    ["created-asc", ["second-file", "first-file", "third-file", "fourth-file", "unknown-file"]],
+    ["updated-desc", ["second-file", "third-file", "fourth-file", "first-file", "unknown-file"]],
+    ["updated-asc", ["first-file", "third-file", "fourth-file", "second-file", "unknown-file"]],
+  ]);
+  const labels = ["Default (filename order)", "Name A–Z", "Name Z–A", "Created newest", "Created oldest", "Updated newest", "Updated oldest"];
+  for (const collected of [false, true]) {
+    const app = fixture({ groups, collected });
+    assert.equal(app.filter, null, "sorting does not create a tag-filter toolbar without tags");
+    const select = app.sortSelect;
+    const control = select.parentElement;
+    assert.equal(control.tagName, "LABEL");
+    for (const className of ["ohm-icon-button", "ohm-nav-sort", "ohm-todo-sort"]) {
+      assert.equal(control.classList.contains(className), true);
+    }
+    assert.match(control.innerHTML, /<svg class="ohm-icon"/);
+    assert.equal(select.tagName, "SELECT");
+    assert.equal(select.classList.contains("ohm-nav-sort-select"), true);
+    assert.equal(select.getAttribute("aria-label"), "Sort TODO files");
+    assert.deepEqual(select.children.map((option) => option.value), [...expected.keys()]);
+    assert.deepEqual(select.children.map((option) => option.textContent), labels);
+    assert.deepEqual(app.storageWrites, [], "a clean first visit is unwritten");
+    for (const [mode, order] of expected) {
+      app.sort(mode);
+      assert.deepEqual(app.groupOrder(), order, mode);
+      assert.equal(select.value, mode);
+      assert.equal(control.getAttribute("data-ohm-sort-mode"), mode);
+      assert.equal(control.classList.contains("ohm-nav-sort--active"), mode !== "default");
+      const title = "Sort TODO files: " + labels[[...expected.keys()].indexOf(mode)];
+      assert.equal(control.getAttribute("title"), title);
+      assert.equal(select.getAttribute("title"), title);
+    }
+    app.sort("default");
+    assert.deepEqual(app.groupOrder(), groups.map((group) => group.id));
+    assert.equal(app.storage.entries.has(sortKey()), false);
+    select.focus();
+    for (const [type, key] of [["pointerdown"], ["click"], ["keydown", "ArrowDown"], ["keyup", "ArrowDown"]]) {
+      const event = { type, key };
+      assert.equal(select.dispatchEvent(event), true, "native " + type + " behavior remains available");
+      assert.equal(event.defaultPrevented, false);
+    }
+    assert.equal(app.document.activeElement, select);
+  }
+});
+
+test("TODO date sorting accepts safe signed milliseconds and puts unknown and invalid dates last", () => {
+  const invalid = [undefined, null, "", " ", "10.5", "1e3", "+1", "NaN", "Infinity", "9007199254740992", "-9007199254740992"];
+  const groups = [
+    { id: "zero", title: "Zero", created: "0", updated: "0", tasks: [] },
+    ...invalid.map((value, index) => ({ id: "invalid" + index, title: "Unknown " + (invalid.length - index), created: value, updated: value, tasks: [] })),
+    { id: "maximum", title: "Maximum", created: "9007199254740991", updated: "9007199254740991", tasks: [] },
+    { id: "negative", title: "Negative", created: "-1", updated: "-1", tasks: [] },
+    { id: "minimum", title: "Minimum", created: "-9007199254740991", updated: "-9007199254740991", tasks: [] },
+    { id: "zero-alpha10", title: "alpha 10", created: "0", updated: "0", tasks: [] },
+    { id: "zero-alpha2", title: "Alpha 2", created: "-0", updated: "-0", tasks: [] },
+    { id: "zero-alpha2-tie", title: "alpha 2", created: "0", updated: "0", tasks: [] },
+  ];
+  const app = fixture({ groups });
+  const unknown = invalid.map((_, index) => "invalid" + (invalid.length - index - 1));
+  const zeros = ["zero-alpha2", "zero-alpha2-tie", "zero-alpha10", "zero"];
+  for (const field of ["created", "updated"]) {
+    app.sort(field + "-asc");
+    assert.deepEqual(app.groupOrder(), ["minimum", "negative", ...zeros, "maximum", ...unknown]);
+    app.sort(field + "-desc");
+    assert.deepEqual(app.groupOrder(), ["maximum", ...zeros, "negative", "minimum", ...unknown]);
+  }
+});
+
+test("TODO sort controls require two generated groups and stay outside collected content", () => {
+  for (const options of [
+    { scoped: false, groups: sortableGroups() },
+    { groups: [] },
+    { groups: sortableGroups().slice(0, 1) },
+    { own: [{ id: "own", tags: ["travel"] }], groups: [] },
+    { own: [{ id: "own", tags: ["travel"] }], groups: sortableGroups().slice(0, 1) },
+  ]) {
+    const app = fixture(options);
+    assert.equal(app.sortSelect, null);
+    assert.equal(app.document.querySelector(".ohm-todo-controls"), null);
+    assert.deepEqual(app.storage.calls, [], "irrelevant pages do not access sorting preferences");
+  }
+  for (const [title, filename] of [[true, true], [true, false], [false, true], [false, false]]) {
+    const app = fixture({ title, filename, collected: true, groups: sortableGroups() });
+    const toolbar = app.document.querySelector(".ohm-todo-controls");
+    const previous = filename ? app.article.querySelector(".ohm-page-filename") : title ? app.headings.get("todo-title") : null;
+    assert.equal(previous ? previous.nextSibling : app.article.firstChild, toolbar);
+    assert.equal(toolbar.parentElement, app.article);
+    assert.equal(app.sortSelect.closest("[data-ohm-todo-collected]"), null);
+    assert.equal(app.filter, null);
+  }
+  const tagged = fixture({ own: [{ id: "own", tags: ["home"] }], groups: sortableGroups(), collected: true });
+  assert.equal(tagged.sortSelect.parentElement.parentElement, tagged.filter);
+  assert.equal(tagged.filter.children.at(-1), tagged.sortSelect.parentElement);
+  assert.equal(tagged.document.querySelector(".ohm-todo-controls"), null);
+  tagged.choose("home");
+  assert.equal(tagged.collected.hasAttribute("hidden"), true);
+  assert.equal(tagged.sortSelect.closest("[hidden]"), null, "sorting stays accessible when every file is filtered out");
+});
+
+test("TODO sorting preserves authored slots, section identity, listeners and within-file task order", () => {
+  for (const collected of [false, true]) {
+    let separator;
+    let last;
+    const app = fixture({
+      collected,
+      own: [{ id: "own", children: [{ id: "own-child" }] }],
+      groups: [
+        { id: "z", title: "Zulu", tasks: [{ id: "z-first", children: [{ id: "z-child" }] }, { id: "z-last" }] },
+        { id: "a", title: "Alpha", tasks: [{ id: "a-first" }, { id: "a-last" }] },
+      ],
+      beforeRun({ document, article, collected: wrapper, groups }) {
+        const parent = wrapper || article;
+        separator = document.createElement("p");
+        separator.textContent = "Fixed content between files";
+        parent.insertBefore(separator, groups.get("a"));
+        last = document.createElement("p");
+        last.textContent = "Fixed trailing content";
+        parent.appendChild(last);
+      },
+    });
+    const parent = app.collected || app.article;
+    const originalSlots = [...parent.children];
+    const authored = new Map([...app.article.children].map((node, index) => [node, index])
+      .filter(([node]) => !node.hasAttribute("data-ohm-todo-group")));
+    const sections = new Map(app.groups);
+    const tasks = new Map([...app.groups].map(([id, section]) => [id, section.querySelectorAll("li.ohm-task")]));
+    let clicks = 0;
+    app.tasks.get("z-first").addEventListener("click", () => { clicks++; });
+    app.sort("name-asc");
+    assert.deepEqual(app.groupOrder(), ["a", "z"]);
+    assert.equal(parent.children.indexOf(separator), originalSlots.indexOf(separator));
+    assert.equal(parent.children.indexOf(last), originalSlots.indexOf(last));
+    for (const [node, index] of authored) assert.equal(app.article.children.indexOf(node), index);
+    for (const [id, section] of sections) {
+      assert.equal(app.groups.get(id), section);
+      assert.deepEqual(section.querySelectorAll("li.ohm-task"), tasks.get(id));
+    }
+    app.tasks.get("z-first").dispatchEvent({ type: "click" });
+    assert.equal(clicks, 1);
+    app.sort("default");
+    assert.deepEqual(parent.children, originalSlots);
+  }
+});
+
+test("TODO sorting moves complete flat outline blocks and refreshes observers with active filters", () => {
+  const app = fixture({
+    collected: true,
+    observer: true,
+    own: [{ id: "own", tags: ["home"], heading: "own-task-heading" }],
+    groups: [
+      { id: "z", title: "Zulu", tasks: [{ id: "z", tags: ["travel"], heading: "z-heading", children: [{ id: "nested", tags: ["buy"], heading: "nested-heading" }] }] },
+      { id: "a", title: "Alpha", tasks: [{ id: "a", tags: ["buy"], heading: "a-heading" }] },
+      { id: "b", title: "Beta", tasks: [{ id: "b", tags: ["travel"], heading: "b-heading" }] },
+    ],
+  });
+  const authored = ["todo-title", "own-heading", "own-task-heading", "collected-heading"];
+  const originalOutline = app.outlineOrder();
+  const rows = new Map(app.outlineRows);
+  app.choose("travel");
+  const beforeSort = app.observers.at(-1);
+  beforeSort.deliver(app.headings.get("z-heading"));
+  assert.equal(app.outlineRows.get("z-heading").classList.contains("ohm-outline-item--active"), true);
+  app.sort("name-asc");
+  assert.deepEqual(app.groupOrder(), ["a", "b", "z"], "hidden files move too");
+  assert.deepEqual(app.outlineOrder(), [...authored, "group-a", "a-heading", "group-b", "b-heading", "group-z", "z-heading", "nested-heading"]);
+  assert.equal(beforeSort.disconnected, true);
+  const sortedObserver = app.observers.at(-1);
+  assert.notEqual(sortedObserver, beforeSort);
+  assert.deepEqual(sortedObserver.observed.map((heading) => heading.id),
+    ["todo-title", "own-heading", "collected-heading", "group-b", "b-heading", "group-z", "z-heading"]);
+  for (const id of ["group-a", "a-heading", "nested-heading", "own-task-heading"]) {
+    assert.equal(app.outlineRows.get(id).hasAttribute("hidden"), true, id);
+    assert.equal(sortedObserver.observed.includes(app.headings.get(id)), false, id);
+  }
+  for (const id of ["collected-heading", "group-b", "b-heading", "group-z", "z-heading"]) {
+    assert.equal(app.outlineRows.get(id).hasAttribute("hidden"), false, id);
+    assert.equal(sortedObserver.observed.includes(app.headings.get(id)), true, id);
+  }
+  beforeSort.deliver(app.headings.get("z-heading"));
+  assert.equal(app.outlineRows.get("z-heading").classList.contains("ohm-outline-item--active"), false, "old observer callbacks cannot reactivate a moved row");
+  sortedObserver.deliver(app.headings.get("b-heading"));
+  assert.equal(app.outlineRows.get("b-heading").classList.contains("ohm-outline-item--active"), true);
+  app.clear();
+  assert.deepEqual(app.groupOrder(), ["a", "b", "z"], "clearing a filter preserves sorting");
+  assert.deepEqual(app.outlineOrder(), [...authored, "group-a", "a-heading", "group-b", "b-heading", "group-z", "z-heading", "nested-heading"]);
+  assert.equal(app.hiddenContent().length, 0);
+  assert.equal(app.sortSelect.value, "name-asc");
+  assert.equal(app.observers.at(-1).observed.includes(app.headings.get("nested-heading")), true);
+  app.sort("default");
+  assert.deepEqual(app.outlineOrder(), originalOutline);
+  for (const [id, row] of rows) assert.equal(app.outlineRows.get(id), row, "outline node identity: " + id);
+});
+
+test("TODO sort selection persists for the resolved site across navigation and stays independent", () => {
+  const sidebarKey = "ohimark-sidebar-sort:" + SITE;
+  const collapseKey = "ohimark-sidebar-groups:" + SITE;
+  const storage = new Storage([[sidebarKey, '{"":"updated-asc"}'], [collapseKey, '["notes"]']]);
+  const options = { groups: sortableGroups(), own: [{ id: "own", tags: ["home"] }], storage };
+  const first = fixture(options);
+  first.choose("home");
+  assert.deepEqual(storage.writes, [], "filtering and the first visit do not write a sorting preference");
+  first.sort("created-desc");
+  assert.equal(storage.entries.get(sortKey()), "created-desc");
+  assert.deepEqual(storage.writes, [["set", sortKey(), "created-desc"]]);
+  const navigated = fixture({ ...options, site: "../index.html", url: "https://example.test/docs/deep/TODO.html" });
+  assert.equal(navigated.sortSelect.value, "created-desc");
+  assert.deepEqual(navigated.groupOrder(), ["third-file", "fourth-file", "first-file", "second-file", "unknown-file"]);
+  assert.equal(navigated.selectedTags().length, 0, "tag filtering resets independently on navigation");
+  assert.equal(storage.writes.length, 1, "restoring a valid preference does not rewrite it");
+  const otherSite = "https://example.test/other/index.html";
+  const other = fixture({ ...options, site: otherSite });
+  assert.equal(other.sortSelect.value, "default");
+  other.sort("name-desc");
+  assert.equal(storage.entries.get(sortKey(otherSite)), "name-desc");
+  assert.equal(storage.entries.get(sortKey()), "created-desc");
+  first.sort("default");
+  assert.equal(storage.entries.has(sortKey()), false);
+  assert.equal(storage.entries.get(sortKey(otherSite)), "name-desc");
+  assert.equal(storage.entries.get(sidebarKey), '{"":"updated-asc"}');
+  assert.equal(storage.entries.get(collapseKey), '["notes"]');
+  assert.equal(fixture(options).sortSelect.value, "default");
+  const freshSession = fixture({ groups: sortableGroups() });
+  assert.equal(freshSession.sortSelect.value, "default");
+  assert.deepEqual(freshSession.storageWrites, []);
+});
+
+test("TODO sorting cleans invalid preferences and tolerates missing brand and blocked storage", () => {
+  for (const stored of ["default", "", "unknown-mode", '"name-asc"', "{}", "[]", "null", "{broken"]) {
+    const storage = new Storage([[sortKey(), stored]]);
+    const app = fixture({ groups: sortableGroups(), storage });
+    assert.equal(app.sortSelect.value, "default", stored);
+    assert.deepEqual(app.groupOrder(), sortableGroups().map((group) => group.id));
+    assert.equal(storage.entries.has(sortKey()), false);
+    assert.deepEqual(storage.writes, [["remove", sortKey()]]);
+  }
+  const noBrand = fixture({ site: null, groups: sortableGroups() });
+  noBrand.sort("name-asc");
+  assert.equal(noBrand.groupOrder()[0], "third-file");
+  assert.deepEqual(noBrand.storage.calls, [], "without a site brand sorting skips persistence");
+  const blockedRead = new Storage([[sortKey(), "name-asc"]]);
+  blockedRead.block.add("get");
+  const unreadable = fixture({ groups: sortableGroups(), storage: blockedRead });
+  assert.equal(unreadable.sortSelect.value, "default");
+  unreadable.sort("name-desc");
+  assert.equal(unreadable.groupOrder()[0], "first-file");
+  assert.equal(blockedRead.entries.get(sortKey()), "name-desc");
+  const blockedWrite = new Storage();
+  blockedWrite.block.add("set");
+  const unwritable = fixture({ groups: sortableGroups(), storage: blockedWrite });
+  unwritable.sort("name-asc");
+  assert.equal(unwritable.groupOrder()[0], "third-file");
+  assert.equal(blockedWrite.entries.has(sortKey()), false);
+  const blockedRemoval = new Storage([[sortKey(), "created-desc"]]);
+  blockedRemoval.block.add("remove");
+  const unremovable = fixture({ groups: sortableGroups(), storage: blockedRemoval });
+  unremovable.sort("default");
+  assert.deepEqual(unremovable.groupOrder(), sortableGroups().map((group) => group.id));
+  assert.equal(blockedRemoval.entries.get(sortKey()), "created-desc");
+  const inaccessible = fixture({
+    groups: sortableGroups(),
+    beforeRun({ window }) {
+      Object.defineProperty(window, "sessionStorage", { get() { throw new Error("Storage inaccessible"); } });
+    },
+  });
+  inaccessible.sort("updated-asc");
+  assert.equal(inaccessible.groupOrder()[0], "first-file");
 });

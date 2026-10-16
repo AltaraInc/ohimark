@@ -668,6 +668,172 @@
 
   enhanceTodoFiltering();
 
+  function enhanceTodoSorting() {
+    var scope = document.querySelector("article[data-ohm-todo]");
+    if (!scope) return;
+    var parent = scope.querySelector("[data-ohm-todo-collected]") || scope;
+    var sections = Array.from(parent.children).filter(function (child) {
+      return child.tagName === "SECTION" && child.hasAttribute("data-ohm-todo-group");
+    });
+    if (sections.length < 2) return;
+
+    var modes = new Map([
+      ["default", "Default (filename order)"],
+      ["name-asc", "Name A–Z"],
+      ["name-desc", "Name Z–A"],
+      ["created-desc", "Created newest"],
+      ["created-asc", "Created oldest"],
+      ["updated-desc", "Updated newest"],
+      ["updated-asc", "Updated oldest"],
+    ]);
+    var collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+    function timestamp(section, attribute) {
+      var value = section.getAttribute(attribute);
+      if (value === null || !/^-?\d+$/.test(value)) return null;
+      var number = Number(value);
+      return Number.isSafeInteger(number) ? number : null;
+    }
+    var items = sections.map(function (section, index) {
+      var heading = section.querySelector("h2");
+      return {
+        element: section,
+        index: index,
+        title: heading ? heading.textContent.trim() : "",
+        created: timestamp(section, "data-ohm-created"),
+        updated: timestamp(section, "data-ohm-updated"),
+      };
+    });
+
+    // Outline rows are flat, but each file owns every heading inside its
+    // section, including headings nested in tasks. Move that complete block.
+    var outlines = new Map();
+    items.forEach(function (item) {
+      item.element.querySelectorAll("h1, h2, h3, h4, h5, h6").forEach(function (heading) {
+        var row = itemByHeadingId.get(heading.id);
+        if (!row || !row.parentElement) return;
+        var list = row.parentElement;
+        if (!outlines.has(list)) outlines.set(list, { children: Array.from(list.children), owners: new Map() });
+        outlines.get(list).owners.set(row, item);
+      });
+    });
+
+    var toolbar = scope.querySelector(".ohm-todo-filter");
+    if (!toolbar) {
+      toolbar = document.createElement("div");
+      toolbar.className = "ohm-todo-controls";
+      var direct = Array.from(scope.children);
+      var title = direct.find(function (child) { return child.classList.contains("ohm-page-filename"); }) ||
+        direct.find(function (child) { return child.tagName === "H1"; });
+      scope.insertBefore(toolbar, title ? title.nextSibling : scope.firstChild);
+    }
+    var control = document.createElement("label");
+    control.className = "ohm-icon-button ohm-nav-sort ohm-todo-sort";
+    control.innerHTML = ICONS.sort;
+    var select = document.createElement("select");
+    select.className = "ohm-nav-sort-select ohm-todo-sort-select";
+    select.setAttribute("aria-label", "Sort TODO files");
+    modes.forEach(function (label, value) {
+      var option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      select.appendChild(option);
+    });
+    control.appendChild(select);
+    toolbar.appendChild(control);
+    var children = Array.from(parent.children);
+    var sortableElements = new Set(sections);
+
+    function moveChildren(list, ordered) {
+      ordered.forEach(function (element, index) {
+        var reference = list.children[index] || null;
+        if (element === reference) return;
+        if (typeof list.moveBefore === "function") list.moveBefore(element, reference);
+        else list.insertBefore(element, reference);
+      });
+    }
+
+    function sort(mode) {
+      var ordered = items.slice();
+      if (mode !== "default") {
+        var field = mode.split("-")[0];
+        var direction = mode.endsWith("-desc") ? -1 : 1;
+        ordered.sort(function (a, b) {
+          if (field !== "name") {
+            if (a[field] === null && b[field] !== null) return 1;
+            if (a[field] !== null && b[field] === null) return -1;
+            if (a[field] !== null && a[field] !== b[field]) {
+              return (a[field] < b[field] ? -1 : 1) * direction;
+            }
+          }
+          return collator.compare(a.title, b.title) * (field === "name" ? direction : 1) || a.index - b.index;
+        });
+      }
+      var next = 0;
+      moveChildren(parent, children.map(function (child) {
+        return sortableElements.has(child) ? ordered[next++].element : child;
+      }));
+      outlines.forEach(function (outline, list) {
+        var blocks = new Map();
+        outline.children.forEach(function (row) {
+          var owner = outline.owners.get(row);
+          if (!owner) return;
+          if (!blocks.has(owner)) blocks.set(owner, []);
+          blocks.get(owner).push(row);
+        });
+        var sortedBlocks = ordered.filter(function (item) { return blocks.has(item); });
+        var seen = new Set();
+        var rows = [];
+        var nextBlock = 0;
+        outline.children.forEach(function (row) {
+          var owner = outline.owners.get(row);
+          if (!owner) rows.push(row);
+          else if (!seen.has(owner)) {
+            seen.add(owner);
+            rows.push.apply(rows, blocks.get(sortedBlocks[nextBlock++]));
+          }
+        });
+        moveChildren(list, rows);
+      });
+      select.value = mode;
+      control.setAttribute("data-ohm-sort-mode", mode);
+      control.classList.toggle("ohm-nav-sort--active", mode !== "default");
+      var title = "Sort TODO files: " + modes.get(mode);
+      control.setAttribute("title", title);
+      select.setAttribute("title", title);
+      outlineHeadings = Array.from(document.querySelectorAll('.ohm-outline-item > a[href^="#"]')).map(function (link) {
+        return document.getElementById((link.getAttribute("href") || "").slice(1));
+      }).filter(function (heading) { return !!heading; });
+      refreshOutline();
+    }
+
+    var brand = document.querySelector(".ohm-brand[href]");
+    var storageKey = brand ? "ohimark-todo-sort:" + brand.href : null;
+    var storedValue = null;
+    if (storageKey) {
+      try { storedValue = window.sessionStorage.getItem(storageKey); }
+      catch (err) { /* Sorting remains available with blocked storage. */ }
+    }
+    function writePreference(mode) {
+      var value = mode === "default" ? null : mode;
+      if (!storageKey || value === storedValue) return;
+      try {
+        if (value === null) window.sessionStorage.removeItem(storageKey);
+        else window.sessionStorage.setItem(storageKey, value);
+        storedValue = value;
+      } catch (err) { /* Persistence is best-effort only. */ }
+    }
+    var initialMode = modes.has(storedValue) ? storedValue : "default";
+    sort(initialMode);
+    writePreference(initialMode);
+    select.addEventListener("change", function () {
+      var mode = modes.has(select.value) ? select.value : "default";
+      sort(mode);
+      writePreference(mode);
+    });
+  }
+
+  enhanceTodoSorting();
+
   /* =======================================================================
      6. Sidebar controls: preserve independent preferences while keeping
      the mobile navigation drawer closed when entering the mobile layout.

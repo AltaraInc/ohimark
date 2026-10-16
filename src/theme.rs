@@ -156,7 +156,7 @@ fn timestamp_millis(time: SystemTime) -> Option<i128> {
         .then_some(millis)
 }
 
-fn page_time_attrs(times: Option<&PageTimes>) -> String {
+pub(crate) fn page_time_attrs(times: Option<&PageTimes>) -> String {
     let mut attrs = String::new();
     if let Some(times) = times {
         for (name, time) in [("created", times.created), ("updated", times.modified)] {

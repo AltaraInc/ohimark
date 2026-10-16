@@ -495,7 +495,8 @@ img {
   overflow-wrap: anywhere;
 }
 
-.ohm-content .ohm-todo-filter {
+.ohm-content .ohm-todo-filter,
+.ohm-content .ohm-todo-controls {
   box-sizing: border-box;
   display: flex;
   align-items: center;
@@ -505,6 +506,10 @@ img {
   color: var(--ohm-fg);
   font-size: 0.8125rem;
   line-height: 1.4;
+}
+
+.ohm-todo-filter > .ohm-todo-sort {
+  margin-inline-start: auto;
 }
 
 .ohm-todo-picker {
@@ -728,6 +733,10 @@ img {
 }
 
 @media (max-width: 600px) {
+  .ohm-todo-filter > .ohm-todo-picker {
+    flex: 1 1 0;
+  }
+
   /* Keep typing from triggering automatic zoom on mobile browsers. */
   .ohm-todo-search {
     font-size: 1rem;

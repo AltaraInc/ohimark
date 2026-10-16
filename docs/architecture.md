@@ -195,14 +195,16 @@ single line of HTML, so a file's items can be appended as one raw-HTML list. Lif
 works on the Markdown, not the page's rendered HTML, so a `mermaid` fence inside a lifted
 task comes out as an ordinary code block, not a diagram.
 
-The lifted items then form an appendix: an h2 per file with open tasks, in page order,
-linking to that file's source path and followed by its items, behind a `# Collected
-Tasks` heading when the page is a real `TODO.md`. There are no directory headings. When
-nothing was collected the appendix is empty, heading included, and is skipped, so a real
-`TODO.md` renders as it does without `--todo`. The
-TODO page is rendered again in two parts, its own Markdown and then the appendix, each
-parsed separately so a fence or HTML block left open in `TODO.md` cannot swallow the
-appendix. The parts share one `PageIds`, so heading anchors and
+The lifted items then form an appendix: an h2 per file with open tasks, in deterministic
+page order (casefolded source path, R1.6), linking to that file's source path and followed
+by its items, behind a `# Collected Tasks` heading when the page is a real `TODO.md`. Each
+group carries the same safe `data-ohm-created` and `data-ohm-updated` epoch-millisecond
+attributes as its sidebar entry when available; unknown or unsafe values are omitted.
+There are no directory headings. When nothing was collected the appendix is empty,
+heading included, and is skipped, so a real `TODO.md` renders as it does without `--todo`.
+The TODO page is rendered again in two parts, its own Markdown and the appendix. Each
+part is parsed separately so a fence or HTML block left open in `TODO.md` cannot swallow
+the appendix. The parts share one `PageIds`, so heading anchors and
 diagram ids stay unique across both; their HTML and outlines are joined. The generated
 headings get anchors and outline entries, and their links resolve normally. The re-render
 replaces the first one, warnings included, so nothing is reported twice. Nothing is
