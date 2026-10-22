@@ -478,8 +478,7 @@ img {
   display: inline-flex;
   flex-wrap: wrap;
   gap: 0.25rem;
-  max-width: calc(100% - 0.4rem);
-  margin-inline-start: 0.4rem;
+  max-width: 100%;
   vertical-align: baseline;
 }
 

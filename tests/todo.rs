@@ -775,6 +775,13 @@ Outside {outside}.
         body.contains("class=\"ohm-task-tags\""),
         "badge group: {body}"
     );
+    let checkbox = position(body, r#"<input disabled="" type="checkbox"/>"#);
+    let badge_group = position(body, r#"class="ohm-task-tags""#);
+    let task_label = position(body, "Plan a trip");
+    assert!(
+        checkbox < badge_group && badge_group < task_label,
+        "task badges follow the checkbox and lead the label: {body}"
+    );
     assert!(
         body.contains("<li class=\"ohm-task\">"),
         "an untagged task keeps the original opening tag: {body}"
@@ -890,8 +897,8 @@ fn task_tags_render_on_collected_tasks_with_nested_ownership() {
     let parent_badge = position(group, ">Travel</span>");
     let child = position(group, "Source child");
     assert!(
-        parent < parent_badge && parent_badge < child,
-        "the parent's own badge follows its label and precedes its child: {group}"
+        parent_badge < parent && parent < child,
+        "the parent's own leading badge precedes its label and child: {group}"
     );
     let parent_li = group[..parent]
         .rfind("<li")

@@ -17,7 +17,7 @@ pub(crate) struct Annotation {
 }
 
 impl Annotation {
-    /// Emit badges before their original paragraph/block boundary.
+    /// Emit badges at the start of the original task label.
     pub(crate) fn emit_before<'a>(&self, out: &mut Vec<Event<'a>>) {
         if let Some(html) = &self.badges_before {
             out.push(Event::InlineHtml(CowStr::from(html.clone())));
@@ -156,9 +156,9 @@ pub(crate) fn parse(markdown: &str, options: Options) -> (Vec<Event<'_>>, Vec<An
             })
             .collect::<Vec<_>>()
             .join(" ");
-        let boundary = label_end(&events, index);
+        let boundary = label_start(&events, index);
         annotations[boundary].badges_before =
-            Some(format!(r#" <span class="ohm-task-tags">{badges}</span>"#));
+            Some(format!(r#"<span class="ohm-task-tags">{badges}</span> "#));
     }
     (events, annotations)
 }
@@ -182,20 +182,13 @@ fn is_task(events: &[Event<'_>], index: usize) -> bool {
     matches!(events.get(next), Some(Event::TaskListMarker(_)))
 }
 
-/// The first label paragraph is explicit in a loose list and implicit in a tight one.
-fn label_end(events: &[Event<'_>], item: usize) -> usize {
+/// The task marker is followed by the first label event in either list style.
+fn label_start(events: &[Event<'_>], item: usize) -> usize {
     if matches!(events.get(item + 1), Some(Event::Start(Tag::Paragraph))) {
-        return (item + 2..events.len())
-            .find(|&index| matches!(events[index], Event::End(TagEnd::Paragraph)))
-            .expect("a parsed paragraph has an end");
+        item + 3
+    } else {
+        item + 2
     }
-    (item + 2..events.len())
-        .find(|&index| match &events[index] {
-            Event::Start(tag) => !is_inline_tag(tag),
-            Event::End(TagEnd::Item) => true,
-            _ => false,
-        })
-        .expect("a parsed item has an end")
 }
 
 fn is_inline_tag(tag: &Tag<'_>) -> bool {
@@ -567,7 +560,16 @@ mod tests {
             "{rendered}"
         );
         assert!(rendered.contains("plain {plain}"), "{rendered}");
+        let paragraph = rendered.find("<p>").unwrap();
+        let checkbox = rendered
+            .find(r#"<input disabled="" type="checkbox"/>"#)
+            .unwrap();
         let badges = rendered.find("class=\"ohm-task-tags\"").unwrap();
+        let parent = rendered.find("parent").unwrap();
+        assert!(
+            paragraph < checkbox && checkbox < badges && badges < parent,
+            "{rendered}"
+        );
         assert!(badges < rendered.find("</p>").unwrap(), "{rendered}");
         assert!(badges < rendered.find("later").unwrap(), "{rendered}");
     }
