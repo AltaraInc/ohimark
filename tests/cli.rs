@@ -162,10 +162,97 @@ fn r9_5_help_describes_tool_positional_and_every_flag() {
     assert!(stdout.contains("DIR"), "help omits the positional DIR");
     assert!(stdout.contains("--out"), "help omits --out");
     assert!(stdout.contains("--root"), "help omits --root");
+    assert!(
+        stdout.contains("--max-group-size"),
+        "help omits --max-group-size"
+    );
     assert!(stdout.contains("--theme"), "help omits --theme");
     assert!(stdout.contains("--stylesheet"), "help omits --stylesheet");
     assert!(stdout.contains("--endpoint"), "help omits --endpoint");
     assert!(stdout.contains("--exclude"), "help omits --exclude");
+}
+
+#[test]
+fn max_group_size_defaults_and_custom_values_work_in_either_position() {
+    let dir = TempDir::new().expect("create dir");
+    common::write_tree(dir.path(), &[("README.md", "# Home\n")]);
+    let base = TempDir::new().expect("create base");
+
+    for (name, value, before_dir) in [
+        ("default", None, false),
+        ("before", Some("3"), true),
+        ("after", Some("1"), false),
+        ("largest", Some("4294967295"), false),
+    ] {
+        let out = base.path().join(name);
+        let mut arguments = vec!["--out", out.to_str().unwrap()];
+        if before_dir && let Some(value) = value {
+            arguments.extend(["--max-group-size", value]);
+        }
+        arguments.push(dir.path().to_str().unwrap());
+        if !before_dir && let Some(value) = value {
+            arguments.extend(["--max-group-size", value]);
+        }
+        let result = common::run(arguments);
+        assert!(result.success(), "{name}: {}", result.stderr);
+        let html = common::read_built(&out.join("index.html"));
+        let expected = value.unwrap_or("10");
+        assert!(
+            html.contains(&format!("data-ohm-max-group-size=\"{expected}\"")),
+            "{name}: missing configured group size"
+        );
+    }
+}
+
+#[test]
+fn max_group_size_repeated_values_use_the_last_value() {
+    let dir = TempDir::new().expect("create dir");
+    common::write_tree(dir.path(), &[("README.md", "# Home\n")]);
+    let base = TempDir::new().expect("create base");
+    let out = base.path().join("site");
+    let result = common::run([
+        "--max-group-size",
+        "3",
+        dir.path().to_str().unwrap(),
+        "--out",
+        out.to_str().unwrap(),
+        "--max-group-size",
+        "5",
+    ]);
+    assert!(result.success(), "build failed: {}", result.stderr);
+    let html = common::read_built(&out.join("index.html"));
+    assert!(html.contains("data-ohm-max-group-size=\"5\""));
+}
+
+#[test]
+fn max_group_size_rejects_zero_negative_noninteger_overflow_and_missing_values() {
+    let dir = TempDir::new().expect("create dir");
+    common::write_tree(dir.path(), &[("README.md", "# Home\n")]);
+    let base = TempDir::new().expect("create base");
+    let out = base.path().join("site");
+
+    for value in [
+        Some("0"),
+        Some("-1"),
+        Some("1.5"),
+        Some("many"),
+        Some("4294967296"),
+        None,
+    ] {
+        let mut arguments = vec![
+            dir.path().to_str().unwrap(),
+            "--out",
+            out.to_str().unwrap(),
+            "--max-group-size",
+        ];
+        if let Some(value) = value {
+            arguments.push(value);
+        }
+        let result = common::run(arguments);
+        assert!(!result.success(), "accepted invalid group size {value:?}");
+        assert!(result.stderr.contains("error:"), "{}", result.stderr);
+        assert!(!out.exists(), "invalid group size created output");
+    }
 }
 
 /// R9.6: flags are accepted both before and after the positional argument.

@@ -846,6 +846,7 @@
   var navMedia = null;
   var desktopSidebarCollapsed = false;
   var navigationWasMobile = false;
+  var refreshSidebarGroupSizes = function () {};
 
   function readPanelCollapsed(key) {
     try {
@@ -915,6 +916,7 @@
       ? (expanded ? "Close navigation" : "Open navigation")
       : (expanded ? "Collapse navigation" : "Expand navigation");
     syncPanelButton(navButton, label, expanded);
+    refreshSidebarGroupSizes();
   }
 
   function toggleNavigation() {
@@ -1209,6 +1211,7 @@
         var title = group.label + ": " + modes.get(mode);
         control.setAttribute("title", title);
         select.setAttribute("title", title);
+        refreshSidebarGroupSizes();
       }
 
       sort(preferences[group.key] || "default");
@@ -1229,6 +1232,208 @@
   }
 
   enhanceSidebarSorting();
+
+  function enhanceSidebarGroupScrolling() {
+    var nav = document.querySelector(".ohm-sidebar .ohm-nav");
+    if (!nav || typeof nav.getBoundingClientRect !== "function" ||
+        typeof window.getComputedStyle !== "function") return;
+    var configured = nav.getAttribute("data-ohm-max-group-size");
+    var limit = configured && /^\d+$/.test(configured) ? Number(configured) : 10;
+    if (!Number.isSafeInteger(limit) || limit < 1) limit = 10;
+    var entries = [];
+    nav.querySelectorAll("details.ohm-nav-details[data-ohm-nav-group]").forEach(function (group) {
+      var list = Array.from(group.children).find(function (child) {
+        return child.tagName === "UL" && child.classList.contains("ohm-nav-list");
+      });
+      if (!list) return;
+      var summary = Array.from(group.children).find(function (child) { return child.tagName === "SUMMARY"; });
+      var label = summary && summary.querySelector(".ohm-nav-label");
+      var entry = {
+        group: group,
+        list: list,
+        label: label ? label.textContent.trim() : group.getAttribute("data-ohm-nav-group"),
+        maxHeight: list.style.maxHeight || "",
+        tabindex: list.getAttribute("tabindex"),
+        ariaLabel: list.getAttribute("aria-label"),
+        topCue: null,
+        bottomCue: null,
+        revealed: false,
+      };
+      entries.push(entry);
+      group.addEventListener("toggle", function () { refreshSidebarGroupSizes(); });
+      list.addEventListener("scroll", function () { updateCue(entry); });
+    });
+    if (!entries.length) return;
+    // Document order visits parents first. Descendants must settle before an
+    // ancestor measures a row containing an expanded subgroup.
+    entries.reverse();
+
+    function pixels(style, name) { return parseFloat(style[name]) || 0; }
+
+    function setCueVisibility(cue, visible) {
+      cue.style.visibility = visible ? "visible" : "hidden";
+      cue.style.pointerEvents = visible ? "auto" : "none";
+      cue.setAttribute("aria-hidden", visible ? "false" : "true");
+    }
+
+    function createCue(className, description) {
+      var cue = document.createElement("span");
+      cue.className = "ohm-nav-overflow " + className;
+      cue.textContent = "...";
+      cue.setAttribute("role", "img");
+      cue.setAttribute("title", description);
+      cue.setAttribute("aria-label", description);
+      setCueVisibility(cue, false);
+      return cue;
+    }
+
+    function updateCue(entry) {
+      if (!entry.topCue) return;
+      var list = entry.list;
+      var bounds = list.getBoundingClientRect();
+      var range = Math.max(0, list.scrollHeight - list.clientHeight);
+      // Clamp elastic overscroll and tolerate fractional rounding at either
+      // edge. Visibility keeps both slots' geometry stable while scrolling.
+      var top = Math.max(0, Math.min(list.scrollTop, range));
+      var overflow = list.classList.contains("ohm-nav-list--scroll") &&
+        bounds.width > 0 && bounds.height > 0 && range > 1;
+      setCueVisibility(entry.topCue, overflow && top > 1);
+      setCueVisibility(entry.bottomCue, overflow && range - top > 1);
+    }
+
+    function restoreAttribute(element, name, value) {
+      if (value === null) element.removeAttribute(name);
+      else element.setAttribute(name, value);
+    }
+
+    function uncap(entry) {
+      entry.list.style.maxHeight = entry.maxHeight;
+      entry.list.classList.remove("ohm-nav-list--scroll");
+      restoreAttribute(entry.list, "tabindex", entry.tabindex);
+      restoreAttribute(entry.list, "aria-label", entry.ariaLabel);
+      if (entry.topCue) {
+        [entry.topCue, entry.bottomCue].forEach(function (cue) {
+          cue.setAttribute("hidden", "");
+          setCueVisibility(cue, false);
+        });
+      }
+    }
+
+    function measure(entry) {
+      var list = entry.list;
+      var rows = Array.from(list.children).filter(function (child) {
+        return child.tagName === "LI" &&
+          (child.classList.contains("ohm-nav-item") || child.classList.contains("ohm-nav-group"));
+      });
+      if (rows.length <= limit) {
+        uncap(entry);
+        return;
+      }
+      list.classList.add("ohm-nav-list--scroll");
+      // Force the eventual scrollbar width during measurement, including in
+      // browsers without scrollbar-gutter. These synchronous changes do not
+      // paint an intermediate viewport or depend on a fixed row height.
+      list.style.maxHeight = "1px";
+      var bounds = list.getBoundingClientRect();
+      var last = rows[limit - 1];
+      var lastBounds = last.getBoundingClientRect();
+      var style = window.getComputedStyle(list);
+      var height = lastBounds.bottom - bounds.top + list.scrollTop +
+        pixels(style, "borderBottomWidth");
+      if (!bounds.width || !bounds.height || !lastBounds.height || !Number.isFinite(height) || height <= 0) {
+        // Closed disclosures, a hidden sidebar, or missing layout must leave
+        // the original navigation usable until a later visible measurement.
+        uncap(entry);
+        return;
+      }
+      // Bottom padding belongs after the complete list, not after the Nth
+      // row: including it here would expose part of the next row. Invisible
+      // trailing rows also must not create a viewport for padding alone.
+      if (!rows.slice(limit).some(function (row) { return row.getBoundingClientRect().height > 0; })) {
+        uncap(entry);
+        return;
+      }
+      list.style.maxHeight = Math.ceil(height) + "px";
+      if (list.scrollHeight - list.clientHeight <= 1) {
+        uncap(entry);
+        return;
+      }
+      if (entry.tabindex === null) list.setAttribute("tabindex", "0");
+      if (entry.ariaLabel === null) list.setAttribute("aria-label", "Items in " + entry.label + ". Scroll for more.");
+      if (!entry.topCue) {
+        entry.topCue = createCue("ohm-nav-overflow--top", "More items above. Scroll within this group.");
+        entry.bottomCue = createCue("ohm-nav-overflow--bottom", "More items below. Scroll within this group.");
+        entry.group.insertBefore(entry.topCue, list);
+        entry.group.appendChild(entry.bottomCue);
+      }
+      // Both slots must be present before an ancestor measures this row;
+      // switching direction later changes visibility without moving content.
+      entry.topCue.removeAttribute("hidden");
+      entry.bottomCue.removeAttribute("hidden");
+    }
+
+    function revealCurrent(entry) {
+      if (entry.revealed) return;
+      var list = entry.list;
+      var current = list.querySelector('[aria-current="page"]');
+      if (!current) { entry.revealed = true; return; }
+      var bounds = list.getBoundingClientRect();
+      var target = current.getBoundingClientRect();
+      if (!bounds.width || !bounds.height || !target.height) return;
+      if (list.classList.contains("ohm-nav-list--scroll")) {
+        var top = bounds.top + (list.clientTop || 0);
+        var bottom = top + list.clientHeight;
+        // Assign only this list's scroll position: scrollIntoView would also
+        // move the article/window and can expose restored-closed ancestors.
+        if (target.bottom > bottom) list.scrollTop += target.bottom - bottom;
+        if (target.top < top) list.scrollTop += target.top - top;
+        updateCue(entry);
+      }
+      entry.revealed = true;
+    }
+
+    function refresh() {
+      // A temporary cap on a descendant can shrink an ancestor's scroll
+      // range and clamp its scrollTop before that ancestor is measured.
+      // Snapshot every list, including the root viewport, before any writes.
+      var positions = Array.from(nav.querySelectorAll("ul.ohm-nav-list")).map(function (list) {
+        return { list: list, top: list.scrollTop };
+      });
+      entries.forEach(measure);
+      positions.forEach(function (position) { position.list.scrollTop = position.top; });
+      entries.forEach(revealCurrent);
+      entries.forEach(updateCue);
+    }
+
+    var scheduled = false;
+    refreshSidebarGroupSizes = function () {
+      if (scheduled) return;
+      scheduled = true;
+      function run() { scheduled = false; refresh(); }
+      if (typeof window.requestAnimationFrame === "function") window.requestAnimationFrame(run);
+      else run();
+    };
+    window.addEventListener("resize", refreshSidebarGroupSizes);
+    if (navState) navState.addEventListener("change", refreshSidebarGroupSizes);
+    if (typeof window.ResizeObserver === "function") {
+      try {
+        var observer = new window.ResizeObserver(refreshSidebarGroupSizes);
+        observer.observe(nav);
+        entries.forEach(function (entry) { observer.observe(entry.list); });
+      } catch (err) { /* Resize and disclosure events remain available. */ }
+    }
+    if (document.fonts) {
+      if (document.fonts.ready && typeof document.fonts.ready.then === "function") {
+        document.fonts.ready.then(refreshSidebarGroupSizes, function () {});
+      }
+      if (typeof document.fonts.addEventListener === "function") {
+        document.fonts.addEventListener("loadingdone", refreshSidebarGroupSizes);
+      }
+    }
+    refreshSidebarGroupSizes();
+  }
+
+  enhanceSidebarGroupScrolling();
 
   /* =======================================================================
      7. One delegated click listener for every interactive control above,

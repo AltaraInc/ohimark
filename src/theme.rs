@@ -8,6 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use camino::Utf8Path;
 
+use crate::cli::DEFAULT_MAX_GROUP_SIZE;
 use crate::links;
 use crate::model::{NavNode, OutlineEntry, Page, PageTimes, Site, TargetPath, escape_html};
 
@@ -202,7 +203,15 @@ fn render_outline(outline: &[OutlineEntry]) -> String {
 /// always name an explicit `.html` file, never a directory, so the site
 /// works over `file://`.
 pub fn shell(page: &Page, site: &Site, body: &str, outline: &[OutlineEntry]) -> String {
-    shell_with_stylesheets(page, site, body, outline, false, false)
+    shell_with_stylesheets(
+        page,
+        site,
+        body,
+        outline,
+        false,
+        false,
+        DEFAULT_MAX_GROUP_SIZE,
+    )
 }
 
 /// Render the shell with the base, optional preset, then optional custom stylesheet.
@@ -213,6 +222,7 @@ pub(crate) fn shell_with_stylesheets(
     outline: &[OutlineEntry],
     include_theme: bool,
     include_stylesheet: bool,
+    max_group_size: u32,
 ) -> String {
     let dir = page.target.dir();
     let style_href = links::relative_to(dir, Utf8Path::new(STYLE_PATH));
@@ -298,7 +308,9 @@ pub(crate) fn shell_with_stylesheets(
     out.push_str("</header>\n");
     out.push_str("<div class=\"ohm-body\">\n");
     out.push_str("<aside class=\"ohm-sidebar\" id=\"ohm-sidebar\">\n");
-    out.push_str("<nav class=\"ohm-nav\" aria-label=\"Site navigation\">\n");
+    out.push_str(&format!(
+        "<nav class=\"ohm-nav\" aria-label=\"Site navigation\" data-ohm-max-group-size=\"{max_group_size}\">\n"
+    ));
     out.push_str("<div class=\"ohm-panel-header ohm-sidebar-header\">");
     if let Some(root_link) = sidebar_root_link {
         out.push_str(&root_link);
@@ -362,8 +374,13 @@ mod tests {
     /// R4.7 constrains the sidebar, not the whole document, so tests must
     /// compare this slice rather than the full rendered page.
     fn extract_sidebar(html: &str) -> &str {
-        let open = "<nav class=\"ohm-nav\" aria-label=\"Site navigation\">";
-        let start = html.find(open).expect("sidebar nav opening tag not found") + open.len();
+        let open = "<nav class=\"ohm-nav\" aria-label=\"Site navigation\"";
+        let nav_start = html.find(open).expect("sidebar nav opening tag not found");
+        let start = nav_start
+            + html[nav_start..]
+                .find('>')
+                .expect("sidebar nav tag must close")
+            + 1;
         let rest = &html[start..];
         let end = rest
             .find("</nav>")
@@ -669,6 +686,7 @@ mod tests {
                     &[],
                     include_theme,
                     include_stylesheet,
+                    DEFAULT_MAX_GROUP_SIZE,
                 );
                 let mut expected = vec![format!(
                     "<link rel=\"stylesheet\" href=\"{prefix}assets/ohimark.css\">"
@@ -696,7 +714,15 @@ mod tests {
             assert!(!default_html.contains("assets/theme.css"));
             assert_eq!(
                 default_html,
-                shell_with_stylesheets(page, &site, "<p>Body</p>", &[], false, false)
+                shell_with_stylesheets(
+                    page,
+                    &site,
+                    "<p>Body</p>",
+                    &[],
+                    false,
+                    false,
+                    DEFAULT_MAX_GROUP_SIZE,
+                )
             );
         }
     }
@@ -1016,7 +1042,7 @@ mod tests {
         assert!(html.contains("class=\"ohm-panel-header ohm-sidebar-header\""));
         assert!(html.contains("for=\"ohm-nav-state\" aria-label=\"Toggle navigation\" aria-controls=\"ohm-sidebar\" title=\"Toggle navigation\""));
         assert!(
-            html.contains("<nav class=\"ohm-nav\" aria-label=\"Site navigation\">"),
+            html.contains("<nav class=\"ohm-nav\" aria-label=\"Site navigation\" data-ohm-max-group-size=\"10\">"),
             "sidebar navigation opening markup changed: {html}"
         );
 

@@ -662,6 +662,7 @@ mod tests {
             dir: dir.to_owned(),
             out: dir.join("output"),
             root: "README.md".into(),
+            max_group_size: crate::cli::DEFAULT_MAX_GROUP_SIZE,
             theme: None,
             stylesheet: None,
             html_pages: Vec::new(),

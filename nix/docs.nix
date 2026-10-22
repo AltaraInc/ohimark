@@ -81,6 +81,7 @@ let
   renderCommand = lib.concatStringsSep " " [
     "${lib.getExe package}${themeOption}"
     "--todo"
+    "--max-group-size" "10"
     "--endpoint" (lib.escapeShellArg "API") (lib.escapeShellArg "${cargoDocsLanding}/cargo-docs.html")
   ];
 

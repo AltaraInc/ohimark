@@ -54,6 +54,7 @@ pub fn emit(config: &Config, site: &Site, rendered: &[Rendered]) -> Result<Warni
         staging_root,
         config.theme.is_some(),
         stylesheet_bytes.is_some(),
+        config.max_group_size,
     )?;
     write_theme_assets(staging_root)?;
     if let Some(preset) = config.theme {
@@ -221,6 +222,7 @@ fn write_pages(
     staging_root: &Utf8Path,
     include_theme: bool,
     include_stylesheet: bool,
+    max_group_size: u32,
 ) -> Result<()> {
     for (page, page_rendered) in site.pages.iter().zip(rendered.iter()) {
         let html = theme::shell_with_stylesheets(
@@ -230,6 +232,7 @@ fn write_pages(
             &page_rendered.outline,
             include_theme,
             include_stylesheet,
+            max_group_size,
         );
         let dest = staging_root.join(page.target.as_path());
         write_file(&dest, html.as_bytes())?;
@@ -471,6 +474,7 @@ mod tests {
             dir: "/input".into(),
             out: "/output".into(),
             root: "README.md".into(),
+            max_group_size: crate::cli::DEFAULT_MAX_GROUP_SIZE,
             theme: None,
             stylesheet: Some("/theme.css".into()),
             html_pages: Vec::new(),

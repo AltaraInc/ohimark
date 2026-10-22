@@ -7,11 +7,85 @@ use tempfile::TempDir;
 
 /// The sidebar navigation, excluding page content and the separate outline.
 fn sidebar_nav(html: &str) -> &str {
-    let open = "<nav class=\"ohm-nav\" aria-label=\"Site navigation\">";
-    let start = html.find(open).expect("site navigation must exist") + open.len();
+    let open = "<nav class=\"ohm-nav\" aria-label=\"Site navigation\"";
+    let nav_start = html.find(open).expect("site navigation must exist");
+    let start = nav_start
+        + html[nav_start..]
+            .find('>')
+            .expect("navigation tag must close")
+        + 1;
     let rest = &html[start..];
     let end = rest.find("</nav>").expect("site navigation must close");
     &rest[..end]
+}
+
+#[test]
+fn max_group_size_reaches_root_and_nested_pages_without_removing_sidebar_links() {
+    let dir = TempDir::new().expect("create dir");
+    common::write_tree(
+        dir.path(),
+        &[
+            ("README.md", "# Home\n"),
+            ("docs/README.md", "# Documentation\n"),
+            ("docs/deep/guide.md", "# Nested guide\n"),
+        ],
+    );
+    for index in 0..12 {
+        common::write_file(
+            dir.path(),
+            &format!("docs/item{index:02}.md"),
+            format!("# Item {index}\n").as_bytes(),
+        );
+    }
+    let base = TempDir::new().expect("create base");
+    for (name, value) in [("default", None), ("custom", Some("2"))] {
+        let out = base.path().join(name);
+        let mut arguments = vec![dir.path().to_str().unwrap(), "--out", out.to_str().unwrap()];
+        if let Some(value) = value {
+            arguments.extend(["--max-group-size", value]);
+        }
+        let result = common::run(arguments);
+        assert!(result.success(), "{name}: {}", result.stderr);
+
+        for (page, root_href, docs_href, item_prefix, guide_href) in [
+            (
+                "index.html",
+                "index.html",
+                "docs/README.html",
+                "docs/",
+                "docs/deep/guide.html",
+            ),
+            (
+                "docs/deep/guide.html",
+                "../../index.html",
+                "../README.html",
+                "../",
+                "guide.html",
+            ),
+        ] {
+            let html = common::read_built(&out.join(page));
+            let expected = value.unwrap_or("10");
+            assert!(html.contains(&format!(
+                "<nav class=\"ohm-nav\" aria-label=\"Site navigation\" data-ohm-max-group-size=\"{expected}\">"
+            )), "{name}: {page} missing configured sidebar group size");
+            let nav = sidebar_nav(&html);
+            let mut expected_hrefs = vec![
+                root_href.to_owned(),
+                docs_href.to_owned(),
+                guide_href.to_owned(),
+            ];
+            expected_hrefs.extend((0..12).map(|index| format!("{item_prefix}item{index:02}.html")));
+            let hrefs = common::attr_values(nav, "href");
+            assert_eq!(hrefs.len(), expected_hrefs.len(), "{name}: {page}");
+            for href in expected_hrefs {
+                assert!(hrefs.contains(&href.as_str()), "{name}: {page} lost {href}");
+            }
+            assert_eq!(
+                nav.matches("</summary><ul class=\"ohm-nav-list\">").count(),
+                2
+            );
+        }
+    }
 }
 
 /// R1.1: every file whose extension casefolds to `md` or `markdown` becomes a page,

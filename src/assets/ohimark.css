@@ -281,6 +281,30 @@ img {
   overflow-y: auto;
 }
 
+/* JS measures the first configured number of actual rows before enabling a
+   group viewport. Without layout or script every group remains fully usable. */
+.ohm-nav-details > .ohm-nav-list--scroll {
+  box-sizing: border-box;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  overscroll-behavior-y: contain;
+}
+
+.ohm-nav-overflow {
+  display: block;
+  visibility: hidden;
+  pointer-events: none;
+  color: var(--ohm-muted);
+  font-size: 0.875rem;
+  font-weight: bold;
+  line-height: 1;
+  text-align: center;
+}
+
+.ohm-nav-overflow[hidden] {
+  display: none;
+}
+
 .ohm-nav-link,
 .ohm-outline-item a {
   display: block;

@@ -14,7 +14,7 @@ shape of the code that produces it.
 
 ```mermaid
 flowchart TD
-  ARGS["argv"] -->|"parse and validate theme, stylesheet and HTML selections"| CFG["Config"]
+  ARGS["argv"] -->|"parse and validate group size, theme, stylesheet and HTML selections"| CFG["Config"]
   CFG -->|"root directory, excludes"| WALK["Discover sources"]
   WALK -->|"ordered source set"| READ["Read files, extract titles and source times<br/>(parallel)"]
   READ -->|"titles, source times and retained bytes"| MAP["Build source-to-target map,<br/>detect collisions, build nav tree"]
@@ -64,7 +64,7 @@ graph LR
 
 | Module | Responsibility | Key items |
 | --- | --- | --- |
-| `cli` | clap definitions; validates and normalises argv into a `Config`, including explicit HTML titles and destinations | `Args`, `Config`, `HtmlPage`, `PresetTheme` |
+| `cli` | clap definitions; validates and normalises argv into a `Config`, including sidebar group size and explicit HTML titles and destinations | `Args`, `Config`, `HtmlPage`, `PresetTheme` |
 | `model` | shared domain types, errors, and the warning sink; no I/O | `SourceRel`, `TargetPath`, `Page`, `Site`, `NavNode`, `Warnings` |
 | `plan` | ignore-aware walk, `--exclude` overrides, source-to-target mapping, collision detection, root-file resolution, titles, nav tree | `plan()` |
 | `render` | Markdown event stream to HTML; anchors, outline, code fences, Mermaid | `render_page()`, `render_part()` |
@@ -96,6 +96,10 @@ title/path values, while `Config.html_pages` is an ordered `Vec<HtmlPage>`.
 `PresetTheme` and `HtmlPage` are re-exported from the crate root. Code that constructs
 either struct with a literal must provide these fields (`None` or an empty vector when
 unused).
+
+`--max-group-size` is validated as a positive `u32`, defaults to `10`, and uses the last
+value when repeated. `Config` carries this value to the page shell, which exposes it on
+the main navigation as `data-ohm-max-group-size` for the browser enhancement.
 
 ## Standalone HTML pages
 
@@ -162,6 +166,23 @@ root and the group's directory path, independently from collapse state. It valid
 stored choices, removes obsolete values and treats storage as best-effort so a storage
 failure still allows sorting in the current page. Since the chooser is inserted by
 JavaScript, a page without JavaScript keeps its default navigation without an inert control.
+
+## Sidebar group scrolling
+
+The page shell exposes the configured `--max-group-size` on the main navigation as
+`data-ohm-max-group-size`. With JavaScript enabled, the browser measures the rendered
+height of each group's first N immediate page and subgroup rows after theme styling and
+text wrapping, then limits the initial visible area to those rows. Extra rows remain
+reachable by vertical scrolling. Separate top and bottom `...` cues appear independently
+while more content remains above or below: bottom only at the start, both in the middle,
+and top only at the end. Each has a fixed accessible description. Inactive cues retain
+their layout slots while capped but are hidden from assistive technology and pointer
+input, so changing direction does not move rows or alter ancestor geometry or scrolling.
+Uncapping removes both slots from layout. Nested groups are measured independently.
+Sorting, reopening a group, and resizing the sidebar recalculate the visible area.
+A directory heading is outside its child-row
+limit; the top-level list keeps its viewport scrolling and pinned root page. Without
+JavaScript, the complete native navigation stays available without a group cap.
 
 ## Custom stylesheet
 

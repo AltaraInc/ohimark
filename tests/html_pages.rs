@@ -22,8 +22,13 @@ fn build(dir: &Path, out: &Path, extra: &[&str]) -> common::RunResult {
 }
 
 fn sidebar_nav(html: &str) -> &str {
-    let open = "<nav class=\"ohm-nav\" aria-label=\"Site navigation\">";
-    let start = html.find(open).expect("site navigation exists") + open.len();
+    let open = "<nav class=\"ohm-nav\" aria-label=\"Site navigation\"";
+    let nav_start = html.find(open).expect("site navigation exists");
+    let start = nav_start
+        + html[nav_start..]
+            .find('>')
+            .expect("navigation tag must close")
+        + 1;
     let rest = &html[start..];
     &rest[..rest.find("</nav>").expect("site navigation closes")]
 }

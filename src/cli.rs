@@ -5,6 +5,9 @@ use clap::{ArgAction, Parser};
 
 use crate::model::{Error, Result, TargetPath};
 
+/// Maximum visible immediate rows per sidebar directory group by default.
+pub const DEFAULT_MAX_GROUP_SIZE: u32 = 10;
+
 /// A built-in stylesheet layered over the site's minimal base styles.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum PresetTheme {
@@ -15,7 +18,7 @@ pub enum PresetTheme {
 }
 
 /// The raw command-line surface:
-/// `ohimark --out OUTDIR [--root FILENAME] [--theme default|bookish] [--stylesheet FILE] [--endpoint TITLE PATH]... [--exclude GLOB]... [--todo] DIR` (R9.1).
+/// `ohimark --out OUTDIR [--root FILENAME] [--max-group-size N] [--theme default|bookish] [--stylesheet FILE] [--endpoint TITLE PATH]... [--exclude GLOB]... [--todo] DIR` (R9.1).
 ///
 /// Fields accept arbitrary OS strings (not `Utf8PathBuf`) so that a non-UTF-8
 /// argument surfaces as a clear `Error::Config` from [`Args::into_config`]
@@ -54,6 +57,16 @@ pub struct Args {
         help = "Home file, relative to DIR, emitted as index.html [default: README.md]"
     )]
     pub root: std::path::PathBuf,
+
+    /// Maximum visible immediate rows per sidebar directory group before scrolling.
+    #[arg(
+        long = "max-group-size",
+        value_name = "N",
+        default_value_t = DEFAULT_MAX_GROUP_SIZE,
+        value_parser = clap::value_parser!(u32).range(1..),
+        help = "Maximum visible immediate rows per sidebar directory group before scrolling"
+    )]
+    pub max_group_size: u32,
 
     /// An optional built-in theme, loaded after the minimal base styles.
     #[arg(
@@ -123,6 +136,8 @@ pub struct Config {
     pub out: Utf8PathBuf,
     /// The `--root` file as a `DIR`-relative path. Defaults to `README.md`.
     pub root: Utf8PathBuf,
+    /// Maximum visible immediate rows per sidebar directory group before scrolling.
+    pub max_group_size: u32,
     /// The optional `--theme` preset; `None` selects no built-in preset.
     pub theme: Option<PresetTheme>,
     /// The optional `--stylesheet` file, canonicalised to an absolute path.
@@ -158,6 +173,7 @@ impl Args {
             dir,
             out,
             root,
+            max_group_size: self.max_group_size,
             theme: self.theme,
             stylesheet,
             html_pages,
@@ -526,6 +542,7 @@ mod tests {
             dir,
             out: fixture.path().join("site"),
             root: "README.md".into(),
+            max_group_size: DEFAULT_MAX_GROUP_SIZE,
             theme: Some(PresetTheme::Bookish),
             stylesheet: Some(stylesheet.clone()),
             html_pages: Vec::new(),
