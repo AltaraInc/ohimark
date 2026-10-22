@@ -3,6 +3,12 @@
 A gallery of example Mermaid diagrams, one for each diagram type. Every example is a
 fenced `mermaid` block in the Markdown source, rendered to inline SVG at build time.
 
+## Codeblock
+```bash
+> echo $SUPER_SECRET_KEY
+> echo "Done deal!"
+```
+
 ## Flowchart
 
 A flowchart shows the steps of a process and the decisions that route between them.

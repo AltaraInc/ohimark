@@ -795,11 +795,14 @@ a:hover {
   overflow-wrap: normal;
 }
 
-/* A separate strip keeps the control clear of the first line, even when the
-   code is scrolled horizontally. No script means no strip and no dead button. */
+/* Keep the control inside short blocks and reserve room beside the code. */
 .ohm-content pre:has(> .ohm-copy-button) {
   min-height: calc(var(--default-control-size) + 1.5rem);
-  padding-top: calc(var(--default-control-size) + 0.75rem);
+  padding-right: calc(var(--default-control-size) + 1rem);
+}
+
+.ohm-content pre:has(> .ohm-copy-button) > code {
+  overflow-x: auto;
 }
 
 .ohm-content pre > .ohm-copy-button {
