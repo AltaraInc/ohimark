@@ -16,18 +16,40 @@ Add tags to a task by placing a brace group in its text, such as `- [ ] Book a t
 
 ## Usage
 
-`ohimark` requires a root directory to start from and a directory to write to. It optionally accepts a root file (defaulting to `README.md`), exclusion globs, a built-in theme, a custom stylesheet, and a flag to collect open tasks.
+`ohimark` requires a root directory to start from and a directory to write to. It optionally accepts a root file (defaulting to `README.md`), exclusion globs, standalone HTML pages, a built-in theme, a custom stylesheet, and a flag to collect open tasks.
 
 ```sh
-ohimark --out OUTDIR [--root FILENAME] [--exclude GLOB]... [--todo] [--theme default|bookish] [--stylesheet FILE] DIR
+ohimark --out OUTDIR [--root FILENAME] [--exclude GLOB]... [--endpoint TITLE PATH]... [--todo] [--theme default|bookish] [--stylesheet FILE] DIR
 ```
 
 - `--out` or `-o`: directory to write the generated static files to. Required; it must be empty or not yet exist.
 - `--root` or `-r`: the site's home page, given as a path relative to `DIR`. Defaults to `README.md`. It is emitted as `index.html`.
 - `--exclude`: a glob of paths to skip, in addition to the ignore files. Repeatable.
+- `--endpoint TITLE PATH`: copy a standalone HTML page and add a top-level sidebar link using `TITLE`. Zero or more occurrences are accepted: omit the option for no additional pages, or repeat it for each page. Each occurrence takes exactly `TITLE PATH`; links appear in command-line order after the Markdown entries. Quote titles or paths containing spaces. Paths resolve from the current working directory and may be absolute, outside `DIR`, ignored, or excluded. Each title must be nonblank UTF-8 text, and each supplied and canonical path must be UTF-8 and name a readable regular file. No filename extension or HTML parsing is required.
 - `--todo`: collect every unchecked task list item (`- [ ]`) from all pages into the root-level TODO page, under a heading linking each file, in page order. If `DIR` has a top-level `TODO.md`, the tasks are appended to it under a `Collected Tasks` heading and its own tasks are not repeated; otherwise a `TODO.html` page is generated. With at least two collected files, a sidebar-style sort chooser offers filename order, Name A–Z/Z–A, and Created or Updated newest/oldest, using source dates captured at build time. It works with tag filtering, remembers the choice per site for the current browser session, and keeps the outline in sync. Without JavaScript, files stay in filename order. The final TODO page also adds a compact **Filter by tags** search line with fuzzy tag-name matching and up to eight suggestions; typing alone leaves the task list unchanged. Choose tags with the pointer or Arrow Up/Down and Enter; Escape closes the suggestions. The line shows up to two removable selected tags, a `+N` overflow count, Clear and an `N/T` direct-match count. Selecting several tags shows tasks matching any selected tag, along with their parent tasks for context. Clearing the selection shows every task, including untagged tasks. Filtering is available with JavaScript; without it, the complete list and tag badges remain visible. Selections reset when the page reloads. When there are no open tasks to collect, nothing is added and no `TODO.html` is generated. This only affects the HTML output: nothing is written to `DIR`. Off by default.
 - `--theme default|bookish`: use an embedded visual preset. If repeated, the last value is used; other values are rejected.
 - `--stylesheet FILE`: add a stylesheet after the minimal bundled base and any selected preset. The file must be an existing, readable regular file; its supplied and canonical paths must be UTF-8. Its contents are copied unchanged. It may be inside or outside `DIR`, including a file ignored or excluded from discovery. Relative paths are resolved from the current working directory; absolute paths are also accepted. If repeated, the last value is used.
+
+### Standalone HTML pages
+
+```sh
+ohimark --out site --endpoint "Project report" docs/reports/report.html --endpoint "API reference" ../reference.html docs
+```
+
+This copies the first page to `site/reports/report.html` and the external page to
+`site/reference.html`. A source whose canonical path is inside `DIR` keeps its
+`DIR`-relative path and case; an external source uses the supplied filename at the
+output root. Sidebar links work from nested Markdown pages and a relocated home
+page, with URL characters in filenames encoded.
+
+The explicit HTML copy preserves bytes without a page shell or task collection.
+Their links, images, stylesheets, and scripts are not discovered, copied, or
+rewritten; provide those dependencies separately at paths that work from each
+page's output location. A selected page cannot share an output path, or create a
+file/directory conflict, with another page, a referenced asset, or bundled or
+selected CSS and JS. Checks ignore case. Selecting the same source already
+referenced as a Markdown asset is allowed. An invalid selection or collision
+fails the build and leaves output absent or empty; input files stay untouched.
 
 ### Custom styles
 
@@ -128,10 +150,16 @@ The repository's own Markdown can be rendered and served locally by `ohimark`
 itself, with `README.md` as the site's home page:
 
 ```sh
+nix build path:.#docs         # build the documentation site
 nix run path:.#docs            # render once, serve on http://127.0.0.1:8080
 nix run path:.#docs -- 9000    # the same, on port 9000
 nix run path:.#watchdocs       # serve, re-rendering as files change
 ```
+
+All three include a main **API** sidebar link to `cargo-docs.html`, a
+landing page that redirects to `cargo-docs/ohimark/index.html` and provides a
+fallback link. Nix bundles the complete rustdoc tree under `cargo-docs/` for this
+repository's library API; dependency APIs are not included.
 
 `docs` renders the working tree into a cache directory and serves it with
 [`static-web-server`](https://static-web-server.net); `watchdocs` starts that
@@ -154,10 +182,11 @@ and `watchdocs` builders. Presets are embedded, so no theme file is needed at ru
 The optional `stylesheet` argument remains available for a custom override, supplied as
 an in-repository Nix path or a repository-relative string, and is linked after the preset.
 This configuration controls `nix build path:.#docs`, `nix run path:.#docs`, and
-`nix run path:.#watchdocs`. Restart a running `docs` or `watchdocs` app after changing
-the configured theme or embedded preset CSS; a new `nix run` invocation rebuilds the
-immutable executable or wrapper as needed. `watchdocs` still reflects Markdown and
-configured custom stylesheet edits.
+`nix run path:.#watchdocs`. Cargo API docs are an immutable snapshot built by Nix.
+Restart a running `docs` or `watchdocs` app after changing Rust sources, the configured
+theme, or embedded preset CSS; a new `nix run` invocation rebuilds the executable,
+Cargo API docs, or wrapper as needed. `watchdocs` still reflects Markdown and
+configured custom stylesheet edits without a restart.
 
 ### Nightly toolchain and Polonius
 

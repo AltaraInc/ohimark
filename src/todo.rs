@@ -353,7 +353,7 @@ fn resolve_event<'a>(event: Event<'a>, cx: &Context, assets: &mut Vec<SourceRel>
             }
             Resolved::Unchanged if raw.starts_with('#') => CowStr::from(format!(
                 "{}{raw}",
-                links::relative_to(cx.todo_dir, cx.page.target.as_path())
+                links::relative_href(cx.todo_dir, cx.page.target.as_path())
             )),
             Resolved::Unchanged => raw,
             Resolved::Missing => {

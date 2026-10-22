@@ -384,18 +384,21 @@ fn slugify(text: &str) -> String {
     }
 }
 
-/// Deduplicate an anchor id within one page (R6.8): the first occurrence keeps the bare
-/// id; later occurrences of the same id take `-1`, `-2`, ... in document order.
+/// Reserve every emitted anchor (R6.8), including generated suffixes that a later
+/// heading may naturally slug to. Each entry remembers its next suffix to try, so
+/// repeated headings never rescan suffixes already known to be occupied.
 fn dedup_heading_id(base: String, seen: &mut HashMap<String, u32>) -> String {
-    match seen.get(&base).copied() {
-        None => {
-            seen.insert(base.clone(), 0);
-            base
-        }
-        Some(count) => {
-            let next = count + 1;
-            seen.insert(base.clone(), next);
-            format!("{base}-{next}")
+    let Some(mut suffix) = seen.get(&base).copied() else {
+        seen.insert(base.clone(), 1);
+        return base;
+    };
+    loop {
+        let candidate = format!("{base}-{suffix}");
+        suffix += 1;
+        if let std::collections::hash_map::Entry::Vacant(entry) = seen.entry(candidate.clone()) {
+            entry.insert(1);
+            seen.insert(base, suffix);
+            return candidate;
         }
     }
 }
@@ -683,25 +686,23 @@ fn substitute_svg_colors(svg: &str, color_map: &HashMap<(u8, u8, u8), String>) -
         let ch = rest.chars().next().expect("i < len implies a char");
 
         if ch == '#'
-            && hex_is_color_context(&out)
             && let Some((consumed, (r, g, b, a))) = parse_hex_color(rest)
             && let Some(variable) = color_map.get(&(r, g, b))
+            && svg_is_color_context(&out)
         {
             push_substitution(&mut out, variable, a);
             i += consumed;
             continue;
-        } else if ch == 'r' || ch == 'R' {
-            // No context guard: no other CSS/SVG construct spells `rgb(`/`rgba(`, so these
-            // are unambiguous wherever they appear (e.g. inside `filter:drop-shadow(...)`,
-            // preceded by a space rather than `:` or `="`).
-            if let Some((consumed, (r, g, b, a))) = parse_rgb_like(rest) {
-                match color_map.get(&(r, g, b)) {
-                    Some(variable) => push_substitution(&mut out, variable, a),
-                    None => out.push_str(&rest[..consumed]),
-                }
-                i += consumed;
-                continue;
+        } else if (ch == 'r' || ch == 'R')
+            && let Some((consumed, (r, g, b, a))) = parse_rgb_like(rest)
+            && svg_is_color_context(&out)
+        {
+            match color_map.get(&(r, g, b)) {
+                Some(variable) => push_substitution(&mut out, variable, a),
+                None => out.push_str(&rest[..consumed]),
             }
+            i += consumed;
+            continue;
         } else if ch == 'w' || ch == 'W' {
             if let Some(consumed) = match_color_keyword(svg, &out, i, "white") {
                 match color_map.get(&(0xff, 0xff, 0xff)) {
@@ -729,90 +730,125 @@ fn substitute_svg_colors(svg: &str, color_map: &HashMap<(u8, u8, u8), String>) -
     out
 }
 
-// A positive context rule, derived from a census of every `#` context in real `merman`
-// output (flowchart and sequence diagrams). Colour positions are always preceded by `:`
-// or by `="` (optionally with one space): `fill:#…`, `;fill:#…`, `stop-color="#…`,
-// `background-color: white`. Non-colour positions - `url(#…)` marker references, and CSS
-// id selectors after `}`, `,` or `{` (`…;}#flow .node`) - are preceded by something else
-// entirely, so they are never touched. This is a positive allow-list, not a deny-list: it
-// is strictly safer than trying to enumerate every non-colour context.
+/// Colour tokens are also valid author text and URL components. Only consider
+/// colour attributes and CSS declaration values, including nested filter functions.
+fn svg_is_color_context(out: &str) -> bool {
+    if out
+        .chars()
+        .next_back()
+        .is_some_and(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_'))
+    {
+        return false;
+    }
+    let Some((_, mut tag)) = out.rsplit_once('<') else {
+        return false;
+    };
+    if let Some((opening, css)) = tag.split_once('>') {
+        return opening
+            .split_ascii_whitespace()
+            .next()
+            .is_some_and(|name| name.eq_ignore_ascii_case("style"))
+            && css_value_is_color_context(css, true);
+    }
 
-/// True when scanning backward from `out`'s end, through characters that can appear
-/// inside a CSS declaration's value (ASCII letters/digits, space, `-`, `.`, `%`), we reach
-/// a `:` before reaching anything else. This covers the direct case (`fill:#…`,
-/// `background-color: white`) and CSS shorthand, where the colour is not the token
-/// immediately after `:` (`border:1px solid #1f2021`). Any declaration-terminating or
-/// selector character (`;`, `"`, `{`, `}`, `(`, `,`, ...) stops the scan and reports "not a
-/// colour position", so this can never cross into an unrelated declaration or a CSS id
-/// selector. Bounded so a very long, unrelated run of text cannot force a long scan.
-fn preceded_by_colon(out: &str) -> bool {
-    const MAX_SCAN: usize = 80;
-    for (steps, ch) in out.chars().rev().enumerate() {
-        if steps >= MAX_SCAN {
+    // SVG attribute values are quoted; walk past completed values so text in
+    // href, class, data attributes, and other non-colour attributes stays intact.
+    let Some(name_end) = tag.find(char::is_whitespace) else {
+        return false;
+    };
+    tag = &tag[name_end..];
+    loop {
+        tag = tag.trim_start();
+        let Some(name_end) = tag.find(|ch: char| ch == '=' || ch.is_whitespace()) else {
             return false;
+        };
+        let name = &tag[..name_end];
+        let Some(value) = tag[name_end..].trim_start().strip_prefix('=') else {
+            return false;
+        };
+        let value = value.trim_start();
+        let Some(quote @ ('\'' | '"')) = value.chars().next() else {
+            return false;
+        };
+        let value = &value[1..];
+        if let Some(end) = value.find(quote) {
+            tag = &value[end + 1..];
+            continue;
+        }
+        if name.eq_ignore_ascii_case("style") {
+            return css_value_is_color_context(value, true);
+        }
+        return [
+            "fill",
+            "stroke",
+            "color",
+            "stop-color",
+            "flood-color",
+            "lighting-color",
+            "filter",
+        ]
+        .iter()
+        .any(|attribute| name.eq_ignore_ascii_case(attribute))
+            && css_value_is_color_context(value, false);
+    }
+}
+
+/// Check whether the next token belongs to a CSS value, excluding quoted text,
+/// comments, and url() contents. Parentheses remain valid for nested filters.
+fn css_value_is_color_context(prefix: &str, declaration: bool) -> bool {
+    let mut in_value = !declaration;
+    let mut quote = None;
+    let mut escaped = false;
+    let mut comment = false;
+    let mut depth = 0usize;
+    let mut url_depth = None;
+    let mut chars = prefix.char_indices().peekable();
+    while let Some((pos, ch)) = chars.next() {
+        if comment {
+            if ch == '*' && chars.peek().is_some_and(|(_, next)| *next == '/') {
+                chars.next();
+                comment = false;
+            }
+            continue;
+        }
+        if let Some(delimiter) = quote {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == delimiter {
+                quote = None;
+            }
+            continue;
         }
         match ch {
-            ':' => return true,
-            c if c.is_ascii_alphanumeric() || c == ' ' || c == '-' || c == '.' || c == '%' => {}
-            _ => return false,
+            '/' if chars.peek().is_some_and(|(_, next)| *next == '*') => {
+                chars.next();
+                comment = true;
+            }
+            '\'' | '"' => quote = Some(ch),
+            '(' => {
+                depth += 1;
+                let function = prefix[..pos]
+                    .rsplit(|ch: char| !(ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_')))
+                    .next()
+                    .unwrap_or_default();
+                if function.eq_ignore_ascii_case("url") && url_depth.is_none() {
+                    url_depth = Some(depth);
+                }
+            }
+            ')' => {
+                if url_depth == Some(depth) {
+                    url_depth = None;
+                }
+                depth = depth.saturating_sub(1);
+            }
+            ':' if depth == 0 => in_value = true,
+            ';' | '{' | '}' if depth == 0 => in_value = !declaration,
+            _ => {}
         }
     }
-    false
-}
-
-/// True when `out` ends with `="` (skipping at most one trailing space before the `"`) -
-/// the start of an HTML/SVG attribute value. Returns the text preceding the `=`, so the
-/// caller can inspect the attribute name.
-fn preceded_by_attr_equals(out: &str) -> Option<&str> {
-    let bytes = out.as_bytes();
-    let mut pos = bytes.len();
-    if pos == 0 {
-        return None;
-    }
-    if bytes[pos - 1] == b' ' {
-        pos -= 1;
-        if pos == 0 {
-            return None;
-        }
-    }
-    if bytes[pos - 1] != b'"' || pos < 2 || bytes[pos - 2] != b'=' {
-        return None;
-    }
-    Some(&out[..pos - 2])
-}
-
-/// True when the attribute name immediately preceding `prefix`'s end is `href` or
-/// `xlink:href`, so `href="#anchor"` is never mistaken for a colour.
-fn attr_name_is_href(prefix: &str) -> bool {
-    let name: String = prefix
-        .chars()
-        .rev()
-        .take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_' || *c == ':')
-        .collect::<Vec<char>>()
-        .into_iter()
-        .rev()
-        .collect();
-    name.eq_ignore_ascii_case("href") || name.eq_ignore_ascii_case("xlink:href")
-}
-
-/// True when the `#` about to be scanned is in a colour position: preceded by `:` or by
-/// `="` (optionally with one space), and - in the `="` case - not an `href`/`xlink:href`
-/// attribute (so `href="#anchor"` passes through untouched).
-fn hex_is_color_context(out: &str) -> bool {
-    if preceded_by_colon(out) {
-        return true;
-    }
-    match preceded_by_attr_equals(out) {
-        Some(prefix) => !attr_name_is_href(prefix),
-        None => false,
-    }
-}
-
-/// True when a bare colour keyword (`white`, `black`) about to be scanned is in a colour
-/// position: preceded by `:` or by `="` (optionally with one space). Unlike `#hex`, there
-/// is no attribute name to exclude - `href="white"` is not a meaningful reference.
-fn keyword_is_color_context(out: &str) -> bool {
-    preceded_by_colon(out) || preceded_by_attr_equals(out).is_some()
+    in_value && quote.is_none() && !comment && url_depth.is_none()
 }
 
 fn push_substitution(out: &mut String, variable: &str, alpha: f64) {
@@ -959,12 +995,8 @@ fn parse_alpha_token(t: &str) -> Option<f64> {
 }
 
 /// Matches the bare colour keyword `kw` (`white`/`black`) at byte offset `pos` in `svg`,
-/// case-insensitively. Deliberately does **not** rely on word boundaries alone: a diagram
-/// node labelled `black` renders as `>black<` in a `<text>` element, and a bare
-/// word-boundary match would rewrite the reader's own label text. Requiring the positive
-/// `:`/`="` colour context (via `out`, which mirrors `svg` up to `pos`) confines the match
-/// to `stroke="black"` and `background-color: white`, the only forms the census observed.
-/// Still rejects a longer identifier immediately after (`white-space`, `whitesmoke`).
+/// case-insensitively. Rejects longer identifiers before checking the shared SVG/CSS
+/// context, so labels stay literal and ordinary text avoids context rescans.
 fn match_color_keyword(svg: &str, out: &str, pos: usize, kw: &str) -> Option<usize> {
     let rest = svg.get(pos..)?;
     let candidate = rest.get(..kw.len())?;
@@ -975,7 +1007,7 @@ fn match_color_keyword(svg: &str, out: &str, pos: usize, kw: &str) -> Option<usi
         .chars()
         .next()
         .is_none_or(|c| !(c.is_ascii_alphanumeric() || c == '-' || c == '_'));
-    if after_ok && keyword_is_color_context(out) {
+    if after_ok && svg_is_color_context(out) {
         Some(kw.len())
     } else {
         None
@@ -1185,6 +1217,36 @@ mod tests {
     }
 
     #[test]
+    fn r6_8_natural_suffixes_and_duplicate_headings_keep_unique_outline_targets() {
+        for (markdown, expected) in [
+            (
+                "# Intro\n\n## Intro\n\n## Intro 1\n\n## Intro\n",
+                &["intro", "intro-1", "intro-1-1", "intro-2"][..],
+            ),
+            (
+                "# Intro 1\n\n## Intro\n\n## Intro 1\n\n## Intro\n\n## Intro\n",
+                &["intro-1", "intro", "intro-1-1", "intro-2", "intro-3"][..],
+            ),
+        ] {
+            let rendered = render_page(&page(), markdown, &Site::default(), &Diagrams::new());
+            let ids: Vec<_> = rendered
+                .outline
+                .iter()
+                .map(|entry| entry.id.as_str())
+                .collect();
+            assert_eq!(ids, expected, "{markdown}");
+            for id in expected {
+                assert_eq!(
+                    rendered.html.matches(&format!("id=\"{id}\"")).count(),
+                    1,
+                    "outline target {id} must identify exactly one heading: {}",
+                    rendered.html
+                );
+            }
+        }
+    }
+
+    #[test]
     fn r6_8_anchor_is_stable() {
         let diagrams = Diagrams::new();
         let site = Site::default();
@@ -1353,6 +1415,40 @@ mod tests {
             let hex = format!("#{r:02x}{g:02x}{b:02x}");
             assert!(!lower.contains(&hex), "sentinel {hex} leaked into output");
         }
+    }
+
+    fn scanner_colors() -> HashMap<(u8, u8, u8), String> {
+        HashMap::from([
+            ((0, 0, 0), "ohm-dg-text".to_string()),
+            ((255, 255, 255), "ohm-dg-canvas".to_string()),
+        ])
+    }
+
+    #[test]
+    fn svg_color_tokens_in_text_and_non_color_attributes_are_preserved() {
+        let svg = r##"<svg><text>rgb(0,0,0) and fill: rgba(0,0,0,0.5); color: white; fill: #000; stroke: black; color: #fff</text><a href="https://example.com/rgb(0,0,0)#000?color:white" xlink:href="rgba(0,0,0,0.5)"><text data-label="rgb(0,0,0); color: white; fill: #000; stroke: black">Label</text></a></svg>"##;
+        assert_eq!(substitute_svg_colors(svg, &scanner_colors()), svg);
+    }
+
+    #[test]
+    fn svg_rgb_color_attributes_and_inline_styles_are_substituted() {
+        let svg = r#"<svg><path fill="rgb(0,0,0)" stroke='rgba(0,0,0,0.5)'/><stop stop-color='RGB(255 255 255)'/><path style="fill:rgb(0 0 0);stroke:rgb(255,255,255);color:rgb(12,34,56)"/></svg>"#;
+        let expected = r#"<svg><path fill="var(--ohm-dg-text)" stroke='color-mix(in srgb, var(--ohm-dg-text) 50%, transparent)'/><stop stop-color='var(--ohm-dg-canvas)'/><path style="fill:var(--ohm-dg-text);stroke:var(--ohm-dg-canvas);color:rgb(12,34,56)"/></svg>"#;
+        assert_eq!(substitute_svg_colors(svg, &scanner_colors()), expected);
+    }
+
+    #[test]
+    fn svg_rgb_nested_css_filters_are_substituted_but_urls_and_strings_are_preserved() {
+        let svg = r#"<svg><style>.node{filter:drop-shadow(0 1px rgba(0,0,0,0.5)) drop-shadow(0 2px rgb(255,255,255));background:url("https://example.com/rgb(0,0,0)");content:"rgb(0,0,0)";/* rgb(0,0,0) */fill:rgb(0,0,0)}</style><path filter="drop-shadow(0 1px rgb(0,0,0))" style='filter:drop-shadow(0 1px rgba(0,0,0,0.5));fill:url(https://example.com/rgb(0,0,0))'/></svg>"#;
+        let expected = r#"<svg><style>.node{filter:drop-shadow(0 1px color-mix(in srgb, var(--ohm-dg-text) 50%, transparent)) drop-shadow(0 2px var(--ohm-dg-canvas));background:url("https://example.com/rgb(0,0,0)");content:"rgb(0,0,0)";/* rgb(0,0,0) */fill:var(--ohm-dg-text)}</style><path filter="drop-shadow(0 1px var(--ohm-dg-text))" style='filter:drop-shadow(0 1px color-mix(in srgb, var(--ohm-dg-text) 50%, transparent));fill:url(https://example.com/rgb(0,0,0))'/></svg>"#;
+        assert_eq!(substitute_svg_colors(svg, &scanner_colors()), expected);
+    }
+
+    #[test]
+    fn svg_hex_and_keyword_colors_respect_svg_and_css_contexts() {
+        let svg = r##"<svg><style>#fff{fill:#000;stroke:white;border:1px solid #fff}</style><path fill="#000000" stroke="black"/><path filter="drop-shadow(0 1px #000)" style="filter:drop-shadow(0 1px black)"/><a href="#000"><text>#000</text></a></svg>"##;
+        let expected = r##"<svg><style>#fff{fill:var(--ohm-dg-text);stroke:var(--ohm-dg-canvas);border:1px solid var(--ohm-dg-canvas)}</style><path fill="var(--ohm-dg-text)" stroke="var(--ohm-dg-text)"/><path filter="drop-shadow(0 1px var(--ohm-dg-text))" style="filter:drop-shadow(0 1px var(--ohm-dg-text))"/><a href="#000"><text>#000</text></a></svg>"##;
+        assert_eq!(substitute_svg_colors(svg, &scanner_colors()), expected);
     }
 
     /// The width and height of an SVG's `viewBox`.

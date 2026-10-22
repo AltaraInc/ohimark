@@ -3,7 +3,7 @@
 use camino::{Utf8Path, Utf8PathBuf};
 use clap::{ArgAction, Parser};
 
-use crate::model::{Error, Result};
+use crate::model::{Error, Result, TargetPath};
 
 /// A built-in stylesheet layered over the site's minimal base styles.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
@@ -15,7 +15,7 @@ pub enum PresetTheme {
 }
 
 /// The raw command-line surface:
-/// `ohimark --out OUTDIR [--root FILENAME] [--theme default|bookish] [--stylesheet FILE] [--exclude GLOB]... [--todo] DIR` (R9.1).
+/// `ohimark --out OUTDIR [--root FILENAME] [--theme default|bookish] [--stylesheet FILE] [--endpoint TITLE PATH]... [--exclude GLOB]... [--todo] DIR` (R9.1).
 ///
 /// Fields accept arbitrary OS strings (not `Utf8PathBuf`) so that a non-UTF-8
 /// argument surfaces as a clear `Error::Config` from [`Args::into_config`]
@@ -73,6 +73,16 @@ pub struct Args {
     )]
     pub stylesheet: Option<std::path::PathBuf>,
 
+    /// Additional files copied unchanged and linked from the main sidebar.
+    #[arg(
+        long = "endpoint",
+        value_names = ["TITLE", "PATH"],
+        num_args = 2,
+        action = ArgAction::Append,
+        help = "Add a sidebar link with TITLE and copy the local HTML PATH unchanged (repeatable)"
+    )]
+    pub html_pages: Vec<std::ffi::OsString>,
+
     /// A glob to exclude from discovery, matched against `DIR`-relative paths.
     /// Repeatable; every occurrence accumulates (R9.6).
     #[arg(
@@ -93,6 +103,17 @@ pub struct Args {
     pub todo: bool,
 }
 
+/// An explicitly selected HTML page, copied without rendering or rewriting.
+#[derive(Clone, Debug)]
+pub struct HtmlPage {
+    /// The label displayed in the main sidebar.
+    pub title: String,
+    /// The input file, canonicalised to an absolute path.
+    pub source: Utf8PathBuf,
+    /// The file's path within the emitted site.
+    pub target: TargetPath,
+}
+
 /// A validated, normalised configuration.
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -106,6 +127,8 @@ pub struct Config {
     pub theme: Option<PresetTheme>,
     /// The optional `--stylesheet` file, canonicalised to an absolute path.
     pub stylesheet: Option<Utf8PathBuf>,
+    /// Explicit HTML pages, in command-line order.
+    pub html_pages: Vec<HtmlPage>,
     /// Repeatable `--exclude` globs, in the order given.
     pub excludes: Vec<String>,
     /// `Some(rel)` when `out` lies inside `dir`; the `DIR`-relative path of the
@@ -129,6 +152,7 @@ impl Args {
             .as_deref()
             .map(validate_stylesheet)
             .transpose()?;
+        let html_pages = validate_html_pages(self.html_pages, &dir)?;
 
         Ok(Config {
             dir,
@@ -136,6 +160,7 @@ impl Args {
             root,
             theme: self.theme,
             stylesheet,
+            html_pages,
             excludes: self.excludes,
             out_inside_dir,
             todo: self.todo,
@@ -165,31 +190,71 @@ fn validate_dir(dir: &std::path::Path) -> Result<Utf8PathBuf> {
 
 /// An explicitly selected stylesheet can live anywhere, independently of discovery.
 fn validate_stylesheet(path: &std::path::Path) -> Result<Utf8PathBuf> {
-    let path = to_utf8(path, "--stylesheet")?;
+    validate_selected_file(path, "--stylesheet")
+}
+
+/// Explicit files are independent of discovery and must resolve to regular files.
+fn validate_selected_file(path: &std::path::Path, option: &str) -> Result<Utf8PathBuf> {
+    let path = to_utf8(path, option)?;
     let absolute = resolve_against_cwd(path.clone()).map_err(|source| {
-        Error::Config(format!(
-            "--stylesheet `{path}` could not be resolved: {source}"
-        ))
+        Error::Config(format!("{option} `{path}` could not be resolved: {source}"))
     })?;
     let metadata = std::fs::metadata(&absolute).map_err(|source| {
-        Error::Config(format!("--stylesheet `{path}` could not be read: {source}"))
+        Error::Config(format!("{option} `{path}` could not be read: {source}"))
     })?;
     if !metadata.is_file() {
         return Err(Error::Config(format!(
-            "--stylesheet `{path}` is not a regular file"
+            "{option} `{path}` is not a regular file"
         )));
     }
     let canonical = std::fs::canonicalize(&absolute).map_err(|source| {
-        Error::Config(format!(
-            "--stylesheet `{path}` could not be resolved: {source}"
-        ))
+        Error::Config(format!("{option} `{path}` could not be resolved: {source}"))
     })?;
     Utf8PathBuf::from_path_buf(canonical).map_err(|canonical| {
         Error::Config(format!(
-            "--stylesheet `{path}` resolves to `{}`, which is not valid UTF-8",
+            "{option} `{path}` resolves to `{}`, which is not valid UTF-8",
             canonical.display()
         ))
     })
+}
+
+fn validate_html_pages(values: Vec<std::ffi::OsString>, dir: &Utf8Path) -> Result<Vec<HtmlPage>> {
+    let (pairs, remainder) = values.as_chunks::<2>();
+    let mut pages = Vec::with_capacity(pairs.len());
+    for pair in pairs {
+        let path = std::path::Path::new(&pair[1]);
+        let title = pair[0].to_str().ok_or_else(|| {
+            Error::Config(format!(
+                "--endpoint `{}` has a title that is not valid UTF-8",
+                path.display()
+            ))
+        })?;
+        if title.trim().is_empty() {
+            return Err(Error::Config(format!(
+                "--endpoint `{}` requires a nonempty title",
+                path.display()
+            )));
+        }
+        let supplied = to_utf8(path, "--endpoint")?;
+        let source = validate_selected_file(path, "--endpoint")?;
+        let target = match source.strip_prefix(dir) {
+            Ok(relative) => relative.to_path_buf(),
+            Err(_) => Utf8PathBuf::from(supplied.file_name().ok_or_else(|| {
+                Error::Config(format!("--endpoint `{supplied}` has no filename"))
+            })?),
+        };
+        pages.push(HtmlPage {
+            title: title.to_owned(),
+            source,
+            target: TargetPath::new(target),
+        });
+    }
+    if !remainder.is_empty() {
+        return Err(Error::Config(
+            "--endpoint requires both TITLE and PATH".to_owned(),
+        ));
+    }
+    Ok(pages)
 }
 
 /// Join a relative path to the current working directory; leave an absolute one alone.
@@ -295,6 +360,78 @@ mod tests {
     use super::*;
 
     #[test]
+    fn endpoint_is_optional_and_repeatable() {
+        use std::ffi::OsString;
+
+        let args = Args::try_parse_from(["ohimark", "dir", "--out", "site"]).unwrap();
+        assert!(args.html_pages.is_empty());
+
+        for arguments in [
+            vec![
+                "ohimark",
+                "--endpoint",
+                "Report",
+                "report.html",
+                "dir",
+                "--out",
+                "site",
+            ],
+            vec![
+                "ohimark",
+                "dir",
+                "--out",
+                "site",
+                "--endpoint",
+                "Report",
+                "report.html",
+            ],
+        ] {
+            let args = Args::try_parse_from(arguments).unwrap();
+            assert_eq!(
+                args.html_pages,
+                ["Report", "report.html"].map(OsString::from)
+            );
+        }
+
+        let args = Args::try_parse_from([
+            "ohimark",
+            "--endpoint",
+            "First",
+            "first.html",
+            "dir",
+            "--endpoint",
+            "Second",
+            "second.html",
+            "--out",
+            "site",
+            "--endpoint",
+            "Third",
+            "third.html",
+        ])
+        .unwrap();
+        assert_eq!(
+            args.html_pages,
+            [
+                "First",
+                "first.html",
+                "Second",
+                "second.html",
+                "Third",
+                "third.html"
+            ]
+            .map(OsString::from)
+        );
+
+        for arguments in [
+            vec!["ohimark", "dir", "--out", "site", "--endpoint"],
+            vec!["ohimark", "dir", "--out", "site", "--endpoint", "Title"],
+            vec!["ohimark", "--endpoint", "Title", "--out", "site", "dir"],
+        ] {
+            assert!(Args::try_parse_from(arguments).is_err());
+        }
+    }
+
+    #[test]
     fn stylesheet_is_optional_and_last_value_wins_in_either_position() {
         let default = Args::try_parse_from(["ohimark", "dir", "--out", "site"]).unwrap();
         assert_eq!(default.stylesheet, None);
@@ -391,6 +528,7 @@ mod tests {
             root: "README.md".into(),
             theme: Some(PresetTheme::Bookish),
             stylesheet: Some(stylesheet.clone()),
+            html_pages: Vec::new(),
             excludes: vec!["**".into()],
             todo: false,
         };

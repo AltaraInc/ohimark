@@ -1,8 +1,10 @@
 { lib
 , runCommand
 , writeShellApplication
+, writeTextDir
 , coreutils
 , findutils
+, flock
 , git
 , static-web-server
 , watchexec
@@ -13,6 +15,60 @@
 }:
 
 let
+  manifest = lib.importTOML ../Cargo.toml;
+  crateName = lib.replaceStrings [ "-" ] [ "_" ] (manifest.lib.name or manifest.package.name);
+
+  # Reuse the package's source, pinned compiler, vendored dependencies and
+  # RUSTFLAGS. Override installation too, so Cargo's hooks do not try to
+  # install a binary from this documentation-only build.
+  cargoDocs = package.overrideAttrs (_: {
+    pname = "${pname}-cargo-docs";
+    doCheck = false;
+    buildPhase = ''
+      runHook preBuild
+      cargo doc --offline --locked --no-deps --lib
+      runHook postBuild
+    '';
+    installPhase = ''
+      runHook preInstall
+      mkdir -p "$out"
+      cp -R target/doc/. "$out/"
+      runHook postInstall
+    '';
+  });
+
+  # `--endpoint` copies one file. A stable filename avoids both index.html's
+  # home-page collision and a store hash appearing in the sidebar URL.
+  cargoDocsLanding = writeTextDir "cargo-docs.html" ''
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <meta http-equiv="refresh" content="0; url=cargo-docs/${crateName}/index.html">
+      <title>Cargo docs</title>
+    </head>
+    <body>
+      <p><a href="cargo-docs/${crateName}/index.html">Open Cargo docs</a></p>
+    </body>
+    </html>
+  '';
+
+  # `$site` is the completed Markdown render. Never merge rustdoc with an
+  # existing path; its entire tree, including shared assets, belongs here.
+  bundleCargoDocs = ''
+    conflict="$(find "$site" -mindepth 1 -maxdepth 1 -iname cargo-docs -print -quit)"
+    if [ -n "$conflict" ]; then
+      echo "${pname}: cannot bundle Cargo docs: $conflict already exists" >&2
+      exit 1
+    fi
+    mkdir -p "$site/cargo-docs"
+    cp -R ${cargoDocs}/. "$site/cargo-docs/"
+    # Store directories are read-only; live rebuilds must be able to remove
+    # the previous bundle when replacing the served site's contents.
+    chmod -R u+w "$site/cargo-docs"
+  '';
+
   # Optional embedded theme preset. `null` leaves ohimark on its native
   # default; the stylesheet argument below remains an optional custom file.
   themeOption =
@@ -22,7 +78,11 @@ let
       " --theme ${lib.escapeShellArg theme}"
     else
       throw "unsupported docs theme; expected null, 'default', or 'bookish'";
-  renderCommand = "${lib.getExe package}${themeOption} --todo";
+  renderCommand = lib.concatStringsSep " " [
+    "${lib.getExe package}${themeOption}"
+    "--todo"
+    "--endpoint" (lib.escapeShellArg "API") (lib.escapeShellArg "${cargoDocsLanding}/cargo-docs.html")
+  ];
 
   # Optional stylesheet applied to both docs outputs. Accept a Nix path within
   # this repository or a repo-relative string such as `styles/overrides.css`.
@@ -74,8 +134,10 @@ let
   # `ohimark`'s own documentation site: this repository's Markdown, rendered
   # by the very tool it describes ("dogfooding"). `--todo` collects the open
   # task-list items into the site's `TODO.html` page.
-  docs = runCommand "${pname}-docs" { } ''
+  docs = runCommand "${pname}-docs" { nativeBuildInputs = [ findutils ]; } ''
     ${renderCommand}${stylesheetOption} --out $out ${docsRoot}
+    site="$out"
+    ${bundleCargoDocs}
   '';
 
   # The wrappers below serve the *working tree* rather than the sealed `docs`
@@ -111,10 +173,16 @@ let
   # One render of the working tree into `$OHIMARK_DOCS_STATE/site`.
   build = writeShellApplication {
     name = "${pname}-docs-build";
-    runtimeInputs = [ coreutils findutils git ];
+    runtimeInputs = [ coreutils findutils flock git ];
     text = ''
       repo="''${OHIMARK_DOCS_REPO:-$(git rev-parse --show-toplevel)}"
       state="''${OHIMARK_DOCS_STATE:?must be set by ${pname}-docs}"
+
+      # Initial renders and watcher updates share the same staging directory.
+      # The descriptor lock is released automatically when the build exits.
+      mkdir -p "$state"
+      exec 9>"$state/build.lock"
+      flock -x 9
 
       # `--out` has to be empty or absent, so each render goes to a fresh
       # staging directory before replacing the served directory's contents:
@@ -125,6 +193,8 @@ let
       # Configured stylesheet paths are literal filenames, including dollar signs.
       # shellcheck disable=SC2016
       ${renderCommand} --out "$state/next" --root README.md "$repo"${stylesheetRepoOption}
+      site="$state/next"
+      ${bundleCargoDocs}
       find "$state/site" -mindepth 1 -delete
       cp -R "$state/next/." "$state/site/"
       rm -rf "$state/next"

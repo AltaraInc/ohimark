@@ -95,6 +95,12 @@ pub fn relative_to(from_dir: &Utf8Path, to: &Utf8Path) -> String {
     parts.join("/")
 }
 
+/// Encode a relative URL computed from raw filesystem paths exactly once.
+#[must_use]
+pub fn relative_href(from_dir: &Utf8Path, to: &Utf8Path) -> String {
+    percent_encoding::utf8_percent_encode(&relative_to(from_dir, to), PATH_ENCODE_SET).to_string()
+}
+
 /// Split an authored reference into `(path, query, fragment)`. The fragment is
 /// taken at the first `#`, then the query at the first `?` of what remains.
 /// Both include their leading delimiter, or are empty.
@@ -166,8 +172,7 @@ pub fn resolve(raw: &str, source_dir: &Utf8Path, target_dir: &Utf8Path, site: &S
         None => return Resolved::Missing,
     };
 
-    let href_path = relative_to(target_dir, &target_path);
-    let encoded = percent_encoding::utf8_percent_encode(&href_path, PATH_ENCODE_SET);
+    let encoded = relative_href(target_dir, &target_path);
     let href = format!("{encoded}{query}{fragment}");
 
     match asset_source {
@@ -249,6 +254,17 @@ mod tests {
 
         let resolved = resolve("my%20file.md", Utf8Path::new(""), Utf8Path::new(""), &site);
         assert_eq!(resolved, Resolved::Page("my%20file.html".to_string()));
+    }
+
+    #[test]
+    fn relative_href_encodes_raw_filenames_without_treating_percent_as_url_escapes() {
+        assert_eq!(
+            relative_href(
+                Utf8Path::new("docs/deep"),
+                Utf8Path::new("report%20 #?'\"é.html")
+            ),
+            "../../report%2520%20%23%3F%27%22%C3%A9.html"
+        );
     }
 
     #[test]

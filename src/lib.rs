@@ -13,7 +13,7 @@ mod task_tags;
 pub mod theme;
 pub mod todo;
 
-pub use cli::{Args, Config, PresetTheme};
+pub use cli::{Args, Config, HtmlPage, PresetTheme};
 pub use model::{Error, Result, Warnings};
 
 use rayon::prelude::*;

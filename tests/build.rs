@@ -167,6 +167,83 @@ fn r1_5_hidden_files_are_eligible() {
     );
 }
 
+/// R1.8: symlink files and directories cannot introduce sources or assets from outside DIR.
+#[cfg(unix)]
+#[test]
+fn r1_8_symlink_markdown_directories_and_assets_are_not_discovered() {
+    use std::os::unix::fs::symlink;
+
+    let dir = TempDir::new().expect("create dir");
+    let outside = TempDir::new().expect("create outside dir");
+    common::write_tree(
+        dir.path(),
+        &[
+            (
+                "README.md",
+                "# Home\n\n[Real](real.md)\n\n[Linked](linked.md)\n\n[Directory](linked-dir/nested.md)\n\n![Outside](linked.png)\n\n![Missing](missing.png)\n",
+            ),
+            ("real.md", "# Real page\n\nReal page content.\n"),
+        ],
+    );
+    common::write_tree(
+        outside.path(),
+        &[
+            ("page.md", "# Outside page\n\n- [ ] Outside task\n"),
+            ("nested.md", "# Outside nested\n\n- [ ] Nested task\n"),
+        ],
+    );
+    common::write_file(outside.path(), "image.png", &tiny_png());
+    symlink(outside.path().join("page.md"), dir.path().join("linked.md"))
+        .expect("symlink Markdown file");
+    symlink(outside.path(), dir.path().join("linked-dir")).expect("symlink directory");
+    symlink(
+        outside.path().join("image.png"),
+        dir.path().join("linked.png"),
+    )
+    .expect("symlink asset");
+
+    let out = TempDir::new().expect("create out");
+    let out_path = out.path().join("site");
+    let result = common::run([
+        dir.path().to_str().unwrap(),
+        "--out",
+        out_path.to_str().unwrap(),
+        "--todo",
+    ]);
+    assert!(result.success(), "build failed: {}", result.stderr);
+
+    let real = common::read_built(&out_path.join("real.html"));
+    assert!(common::article_body(&real).contains("Real page content."));
+    let index = common::read_built(&out_path.join("index.html"));
+    let nav = sidebar_nav(&index);
+    assert!(nav.contains("href=\"real.html\""), "{nav}");
+    assert!(!nav.contains("Outside page"), "{nav}");
+    assert!(!nav.contains("Outside nested"), "{nav}");
+    for path in [
+        "linked.html",
+        "linked-dir",
+        "linked.png",
+        "missing.png",
+        "TODO.html",
+    ] {
+        assert!(!out_path.join(path).exists(), "unexpected output: {path}");
+    }
+    for path in [
+        "linked.md",
+        "linked-dir/nested.md",
+        "linked.png",
+        "missing.png",
+    ] {
+        assert!(
+            result
+                .stderr
+                .contains(&format!("unresolved reference `{path}`")),
+            "missing reference warning for {path}: {}",
+            result.stderr
+        );
+    }
+}
+
 /// R1.9: the output directory is never discovered as input, even when it lies inside `DIR`.
 /// Build twice with `--out` inside `DIR`; a second build (into a different output path, since
 /// the first output is left on disk) must discover the same page set as the first.
@@ -240,6 +317,33 @@ fn r2_3_and_r2_4_root_becomes_index_and_others_keep_their_path() {
     );
     assert!(out_path.join("a/b/c.html").is_file());
     assert!(out_path.join("a/b/d.html").is_file());
+}
+
+/// R2.6: consecutive dots inside a filename are not parent-directory components.
+#[test]
+fn r2_6_filename_with_consecutive_dots_renders_and_links() {
+    let dir = TempDir::new().expect("create dir");
+    common::write_tree(
+        dir.path(),
+        &[
+            ("README.md", "# Home\n\n[Version](version..md)\n"),
+            ("version..md", "# Version\n\n[Home](README.md)\n"),
+        ],
+    );
+    let out = TempDir::new().expect("create out");
+    let out_path = out.path().join("site");
+    let result = common::run([
+        dir.path().to_str().unwrap(),
+        "--out",
+        out_path.to_str().unwrap(),
+    ]);
+    assert!(result.success(), "build failed: {}", result.stderr);
+    assert!(result.stderr.is_empty(), "{}", result.stderr);
+
+    let index = common::read_built(&out_path.join("index.html"));
+    let version = common::read_built(&out_path.join("version..html"));
+    assert!(common::attr_values(common::article_body(&index), "href").contains(&"version..html"));
+    assert!(common::attr_values(common::article_body(&version), "href").contains(&"index.html"));
 }
 
 /// R2.5: two sources whose target paths fold to the same value are a hard error naming both

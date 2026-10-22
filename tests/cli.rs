@@ -164,6 +164,7 @@ fn r9_5_help_describes_tool_positional_and_every_flag() {
     assert!(stdout.contains("--root"), "help omits --root");
     assert!(stdout.contains("--theme"), "help omits --theme");
     assert!(stdout.contains("--stylesheet"), "help omits --stylesheet");
+    assert!(stdout.contains("--endpoint"), "help omits --endpoint");
     assert!(stdout.contains("--exclude"), "help omits --exclude");
 }
 

@@ -3,8 +3,9 @@
 `ohimark` is a single-shot static site generator: one process reads a directory of
 Markdown and writes a directory of HTML, CSS, JS and SVG. It shells out to no external
 binary and makes no network request. Mermaid diagrams are rendered in-process, so the
-built site ships no diagram runtime at all. An optional author-supplied stylesheet is
-copied unchanged; any resources it references are the author's responsibility.
+built site ships no diagram runtime at all. An optional author-supplied stylesheet and
+explicit standalone HTML pages are copied unchanged; any resources they reference are
+the author's responsibility.
 
 [Requirements](requirements.md) specifies the behaviour; this document describes the
 shape of the code that produces it.
@@ -13,21 +14,23 @@ shape of the code that produces it.
 
 ```mermaid
 flowchart TD
-  ARGS["argv"] -->|"parse and validate --theme and --stylesheet"| CFG["Config"]
+  ARGS["argv"] -->|"parse and validate theme, stylesheet and HTML selections"| CFG["Config"]
   CFG -->|"root directory, excludes"| WALK["Discover sources"]
   WALK -->|"ordered source set"| READ["Read files, extract titles and source times<br/>(parallel)"]
   READ -->|"titles, source times and retained bytes"| MAP["Build source-to-target map,<br/>detect collisions, build nav tree"]
+  CFG -->|"explicit HTML titles and targets"| MAP
   MAP -->|"Site: pages, map, nav"| REND["Render pages<br/>(parallel)"]
   REND -->|"with --todo"| TODO["Collect open tasks (parallel),<br/>re-render the TODO page"]
   TODO --> PREFLIGHT
-  REND -->|"html, asset references, outline"| PREFLIGHT["Read selected CSS; preflight reserved output paths"]
+  REND -->|"html, asset references, outline"| PREFLIGHT["Read selected files; preflight output paths"]
   PREFLIGHT --> STAGE
   STAGE["Stage in temp dir outside DIR"]
   STAGE -->|"rendered pages"| PAGES["Write pages"]
   PAGES -->|"bundled CSS and JS"| TH["Write minimal base assets"]
   TH -->|"optional embedded preset bytes"| PRESET["Copy theme.css"]
   PRESET -->|"optional exact-byte copy"| CUSTOM["Copy custom.css"]
-  CUSTOM -->|"referenced Markdown assets"| COPY["Copy assets"]
+  CUSTOM -->|"explicit HTML bytes"| HTML["Copy standalone HTML pages"]
+  HTML -->|"referenced Markdown assets"| COPY["Copy assets"]
   COPY -->|"move, on success only"| OUT["--out"]
 ```
 
@@ -61,14 +64,14 @@ graph LR
 
 | Module | Responsibility | Key items |
 | --- | --- | --- |
-| `cli` | clap definitions; validates and normalises argv into a `Config` | `Args`, `Config`, `PresetTheme` |
+| `cli` | clap definitions; validates and normalises argv into a `Config`, including explicit HTML titles and destinations | `Args`, `Config`, `HtmlPage`, `PresetTheme` |
 | `model` | shared domain types, errors, and the warning sink; no I/O | `SourceRel`, `TargetPath`, `Page`, `Site`, `NavNode`, `Warnings` |
 | `plan` | ignore-aware walk, `--exclude` overrides, source-to-target mapping, collision detection, root-file resolution, titles, nav tree | `plan()` |
 | `render` | Markdown event stream to HTML; anchors, outline, code fences, Mermaid | `render_page()`, `render_part()` |
 | `task_tags` | recognizes tag groups in a task item's own paragraph prose and renders badges plus filter metadata | shared task-tag parser and renderer |
 | `links` | relative reference resolution, plus the POSIX path helpers it needs | `resolve()`, `fold()`, `normpath()`, `relpath()` |
 | `theme` | page shell, sidebar, outline rail; marks the final TODO article; minimal base CSS and JS; embedded presets; optional theme and custom stylesheet links | `shell()`, `STYLE_CSS`, `APP_JS` |
-| `emit` | CSS collision preflight, temp staging, preset and custom stylesheet copies, referenced asset copy, move into `--out` | `emit()` |
+| `emit` | output collision preflight, temp staging, preset and custom stylesheet copies, referenced asset and explicit HTML copies, move into `--out` | `emit()` |
 | `todo` | `--todo`: lifts open task items out of every page, groups them by source, and appends them to the root TODO page | `collect()`, `render_page()` |
 
 Nine modules and a `lib.rs` that sequences them. Discovery lives in `plan` because a
@@ -79,7 +82,8 @@ is what needs them.
 ## Core types
 
 - `SourceRel` — a `DIR`-relative POSIX path to an input file.
-- `TargetPath` — an output-relative path, ending in `.html` for a page.
+- `TargetPath` — an output-relative path, ending in `.html` for a rendered Markdown page; explicit HTML selections preserve their filename.
+- `HtmlPage { title, source, target }` — an explicit standalone input, with a canonical absolute UTF-8 source and an output-relative destination.
 - `Page { source, target, title, times }` — one rendered document. `PageTimes { created, modified }` holds optional source-file creation and modification times; unsupported filesystem timestamps remain unknown, and synthetic pages have neither time.
 - `Site { pages, by_source, nav, todo }` — `by_source` is the casefolded map `links` resolves against; `todo` is the index of the root TODO page when `--todo` is set and there is one (a root TODO file, or a synthetic page because some page has an open task).
 - `NavNode` — either a page entry or a group carrying a label, an optional link, and children.
@@ -87,9 +91,34 @@ is what needs them.
 
 The public `Args` and `Config` structs expose the optional stylesheet path as
 `stylesheet` (`Option<PathBuf>` and `Option<Utf8PathBuf>`, respectively), and the
-optional `theme` as `Option<PresetTheme>`. `PresetTheme` is re-exported from the crate
-root. Code that constructs either struct with a literal must provide both fields
-(`None` when unused).
+optional `theme` as `Option<PresetTheme>`. `Args.html_pages` contains the repeated raw
+title/path values, while `Config.html_pages` is an ordered `Vec<HtmlPage>`.
+`PresetTheme` and `HtmlPage` are re-exported from the crate root. Code that constructs
+either struct with a literal must provide these fields (`None` or an empty vector when
+unused).
+
+## Standalone HTML pages
+
+The CLI validates each `--endpoint TITLE PATH` pair independently of the source walk.
+Titles must be nonblank UTF-8 text. Paths must be UTF-8 before and after canonicalisation
+and name readable regular files. A canonical source under `DIR` retains its relative
+path and case; an external source uses the supplied filename at the output root.
+
+Planning appends a `NavNode::Page` for each selection after the Markdown navigation,
+preserving command-line order. Explicit selections remain separate from `Site.pages`
+and retained Markdown source texts; ordinary discovery still processes eligible files
+independently and registers in-tree HTML assets in `by_source`. The existing shell
+escapes their titles and computes percent-encoded relative sidebar URLs from each
+rendered page's output directory, including a relocated root. Explicit HTML copies
+bypass Markdown rendering and TODO extraction.
+
+Output assembly reads their bytes and checks casefolded exact and component-boundary
+ancestor/descendant collisions against rendered pages, other explicit HTML selections,
+referenced assets, bundled CSS and JS, and enabled preset/custom CSS. An exact asset
+match is allowed only for the same canonical source. After preflight, selected bytes are
+staged unchanged with the rest of the site. Read, collision, or write failures leave
+`--out` absent or empty. HTML resource references are not parsed, copied, or rewritten;
+authors provide dependencies at paths suitable for each HTML file's output location.
 
 ## Rendering a page
 
@@ -269,6 +298,17 @@ The site is written into a temporary directory outside `DIR` and moved into `--o
 once complete, so a failed build never leaves a half-written output directory. `--out`
 may sit inside `DIR`; discovery excludes it so a rebuild never ingests its own output.
 
+The Nix docs bundle builds this repository's library API with the pinned compiler and
+existing Cargo vendoring, running `cargo doc --offline --locked --no-deps --lib`.
+The shared renderer passes `--endpoint 'API'` with a stable `cargo-docs.html`
+landing file, which redirects and provides a fallback link to
+`cargo-docs/ohimark/index.html`. Since an endpoint copies only its selected file,
+`nix/docs.nix` explicitly bundles the full rustdoc resource tree under `cargo-docs/`;
+dependency APIs are omitted. The existing `nix build path:.#docs`, `nix run path:.#docs`,
+and `watchdocs` outputs share this bundle. Live Markdown and custom stylesheet edits
+still re-render normally, while API docs remain an immutable Nix snapshot: restart
+`nix run` after Rust source changes to rebuild the executable and Cargo API docs.
+
 ## Dependencies
 
 | Crate | Used for |
@@ -296,7 +336,7 @@ HTML; and `command-group` with `signal-hook`, which supervised the child process
 
 - **Plan before render** — link resolution needs every target up front, so the page set cannot be discovered lazily. (R6)
 - **Resolve during render, not after** — the parser already yields links as events; a second parse of generated HTML would buy nothing and cost a dependency. (R6)
-- **Only referenced Markdown assets are copied** — the render pass discovers those references; selected preset and custom CSS are explicit inputs copied by `emit`, independent of discovery. (R5)
+- **Copy referenced assets and explicit inputs** — the render pass discovers Markdown asset references; selected preset/custom CSS and standalone HTML pages are copied by `emit` independently of discovery. (R5, R13)
 - **Stage then move** — the only way a failed build can leave `--out` untouched. (R10.2)
 - **One SVG per diagram** — a second themed render would double the build's most expensive step to save a colour-rewriting pass over its output. (R8.2)
 - **Parallel where it is pure, ordered where it is observable** — the expensive phases are independent per page, and every order-sensitive step is deferred until after them, so builds stay easy to diff. (R1.6)

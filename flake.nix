@@ -64,8 +64,9 @@
         program = "${pkgs.${pname}}/bin/${pname}";
       };
       ${pname} = default;
-      # Render this repository's Markdown (root file `README.md`) and serve
-      # it; both apps take the port as an argument, defaulting to 8080.
+      # Render this repository's Markdown (root file `README.md`) alongside
+      # the Nix-built Cargo docs snapshot and serve it. Both apps take the
+      # port as an argument, defaulting to 8080.
       docs = {
         type = "app";
         program = "${pkgs.${docsName}.serve}/bin/${pname}-docs";

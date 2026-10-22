@@ -69,7 +69,7 @@ fn render_nav_link(
     page: &Page,
     dir: &Utf8Path,
 ) -> String {
-    let href = links::relative_to(dir, target.as_path());
+    let href = links::relative_href(dir, target.as_path());
     let title = escape_html(title);
     let (current_class, current_attr) = current_marker(*target == page.target);
     format!("<a class=\"ohm-nav-link{current_class}\"{current_attr} href=\"{href}\">{title}</a>")
@@ -120,7 +120,7 @@ fn render_nav_node(
             match link {
                 // R4.2: link the same-name page first, falling back to README.
                 Some(target) => {
-                    let href = links::relative_to(dir, target.as_path());
+                    let href = links::relative_href(dir, target.as_path());
                     let (current_class, current_attr) = current_marker(*target == page.target);
                     out.push_str(&format!(
                         "<li class=\"ohm-nav-group\"{attrs}><details class=\"ohm-nav-details\" data-ohm-nav-group=\"{group_attr}\" open><summary class=\"ohm-nav-summary\"><a class=\"ohm-nav-link ohm-nav-label{current_class}\"{current_attr} href=\"{href}\">{label}</a></summary><ul class=\"ohm-nav-list\">{children_html}</ul></details></li>"
@@ -386,6 +386,36 @@ mod tests {
             }
         }
         out
+    }
+
+    #[test]
+    fn sidebar_encodes_leaf_and_group_targets_relative_to_the_rendered_page() {
+        let root = page("README.md", "index.html", "Home", true);
+        let current = page("deep/note.md", "deep/note.html", "Note", false);
+        let site = site_with(
+            vec![root, current.clone()],
+            vec![
+                NavNode::Page {
+                    title: "Raw <HTML>".into(),
+                    target: TargetPath::new("café #?%\".html"),
+                },
+                NavNode::Group {
+                    label: "Group".into(),
+                    link: Some(TargetPath::new("group #?%\"/start here.html")),
+                    children: Vec::new(),
+                },
+            ],
+        );
+        let html = shell(&current, &site, "", &[]);
+        let sidebar = extract_sidebar(&html);
+        assert!(sidebar.contains("Raw &lt;HTML&gt;"), "{sidebar}");
+        assert_eq!(
+            all_hrefs(sidebar),
+            [
+                "../caf%C3%A9%20%23%3F%25%22.html",
+                "../group%20%23%3F%25%22/start%20here.html"
+            ]
+        );
     }
 
     #[test]

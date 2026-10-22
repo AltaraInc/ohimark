@@ -69,8 +69,12 @@ pub fn plan(config: &Config) -> Result<Planned> {
                     retarget(source)
                 };
                 debug_assert!(
-                    !target.as_str().starts_with('/') && !target.as_str().contains(".."),
-                    "target path must be output-relative and free of `..` (R2.6)"
+                    target.as_path().is_relative()
+                        && target
+                            .as_path()
+                            .components()
+                            .all(|component| component != camino::Utf8Component::ParentDir),
+                    "target path must be output-relative and free of parent-directory components (R2.6)"
                 );
                 pages.push(Page {
                     source: source.clone(),
@@ -117,6 +121,16 @@ pub fn plan(config: &Config) -> Result<Planned> {
                 let target = TargetPath::new(TODO_TARGET);
                 // R12.3: a file already at that path would be overwritten in the
                 // output; refuse, naming it, as R2.5 does for two pages.
+                if let Some(html_page) = config
+                    .html_pages
+                    .iter()
+                    .find(|page| output_paths_conflict(page.target.as_path(), target.as_path()))
+                {
+                    return Err(Error::Plan(format!(
+                        "--endpoint `{}` produces `{}`, which conflicts with --todo output `{target}`",
+                        html_page.source, html_page.target
+                    )));
+                }
                 if let Some(asset) = discovered
                     .assets
                     .iter()
@@ -154,12 +168,16 @@ pub fn plan(config: &Config) -> Result<Planned> {
         by_source.insert(asset.folded(), SourceKind::Asset(asset.clone()));
     }
 
-    let nav = build_nav(&pages);
+    let mut nav = build_nav(&pages);
     debug_assert_eq!(
         count_reachable_pages(&nav),
         pages.len(),
         "every page must be reachable from the sidebar (R4.6)"
     );
+    nav.extend(config.html_pages.iter().map(|page| NavNode::Page {
+        title: page.title.clone(),
+        target: page.target.clone(),
+    }));
 
     Ok(Planned {
         site: Site {
@@ -172,6 +190,15 @@ pub fn plan(config: &Config) -> Result<Planned> {
         warnings,
         todo_synthetic,
     })
+}
+
+/// File outputs conflict when either would have to be the other's directory.
+pub(crate) fn output_paths_conflict(left: &Utf8Path, right: &Utf8Path) -> bool {
+    let left = links::fold(left.as_str());
+    let right = links::fold(right.as_str());
+    let left = Utf8Path::new(&left);
+    let right = Utf8Path::new(&right);
+    left.starts_with(right) || right.starts_with(left)
 }
 
 /// The source path a synthetic TODO page is planned under (R12.3).
@@ -296,8 +323,9 @@ fn discover(config: &Config, warnings: &mut Warnings) -> Result<Discovered> {
             }
         }
 
-        let is_dir = entry.file_type().is_some_and(|ft| ft.is_dir());
-        if is_dir {
+        // R1.8: follow_links(false) prevents traversal, while this also
+        // excludes symlink files and special entries from later reads.
+        if !entry.file_type().is_some_and(|ft| ft.is_file()) {
             continue;
         }
 
@@ -636,6 +664,7 @@ mod tests {
             root: "README.md".into(),
             theme: None,
             stylesheet: None,
+            html_pages: Vec::new(),
             excludes: Vec::new(),
             out_inside_dir: Some("output".into()),
             todo: true,

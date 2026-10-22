@@ -550,6 +550,35 @@ fn r12_6_fragments_footnotes_and_missing_links_are_rebased() {
     assert!(!body.contains("footnote-reference"), "{body}");
 }
 
+/// R12.6: a collected fragment link encodes its source page's filename while
+/// retaining the authored fragment, including URL characters and Unicode.
+#[test]
+fn r12_6_fragment_backlinks_encode_special_characters_in_the_source_filename() {
+    let dir = TempDir::new().expect("create dir");
+    common::write_tree(
+        dir.path(),
+        &[
+            ("README.md", "# Home\n"),
+            (
+                "guides/Guide #1 50% Café.md",
+                "# Guide\n\n- [ ] [jump](#details)\n\n## Details\n",
+            ),
+        ],
+    );
+    let out = TempDir::new().expect("create out");
+    let site = build(dir.path(), &out, &["--todo"]);
+
+    assert!(site.join("guides/Guide #1 50% Café.html").is_file());
+    let todo = common::read_built(&site.join("TODO.html"));
+    let body = common::article_body(&todo);
+    assert!(
+        body.contains(
+            r##"<a href="guides/Guide%20%231%2050%25%20Caf%C3%A9.html#details">jump</a>"##
+        ),
+        "fragment backlink must encode the page path exactly once: {body}"
+    );
+}
+
 /// R12.4: a root TODO file is found whatever its case and either Markdown extension.
 #[test]
 fn r12_4_root_todo_file_is_matched_casefolded_with_either_extension() {
