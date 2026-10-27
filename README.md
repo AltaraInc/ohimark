@@ -10,6 +10,22 @@ Each markdown file that is collected during the directory traversal will be tran
 
 Mermaid diagrams are rendered to SVG at build time by [`merman`](https://github.com/Latias94/merman), a headless Rust implementation of Mermaid. Nothing is fetched while building and no diagram runtime is shipped to the browser, so diagrams are visible even with JavaScript disabled.
 
+With JavaScript enabled, rectangular tables with one header row can be resized in
+the browser. Drag a header edge to give that column more or less space while the
+other columns keep their widths. Grips show two short, muted bars. Use the final
+column's grip to adjust the table's overall width while earlier columns stay
+fixed. The **Reset widths** icon in the footer restores automatic sizing. All
+controls stay within the table.
+
+Each table's widths are remembered for the current browsing session across page
+navigation and reloads. A table that grows beyond the reading column uses the
+available main pane; larger tables scroll horizontally within their own frame.
+Tables placed in lists or blockquotes stay within their local scrolling area.
+Spanning and nested HTML tables stay unchanged. Changing or removing a header
+starts a new saved layout for that table; tables with the same headers keep
+separate settings by their order on the page. Without JavaScript, tables render
+as usual without resize controls.
+
 Task list items (`- [ ]` and `- [x]`) render as checkboxes reflecting the marker in the source. They are read-only: the rendered page always matches the Markdown it was built from, and ticking a box in a browser is not a way to edit the file.
 
 Add tags to a task by placing a brace group in its text, such as `- [ ] Book a ticket {travel, buy}` or `- [ ] Pack {travel}`. Each tag appears as a badge with square corners and a faded theme color beside that task on every page, whether or not `--todo` is enabled. A tag keeps the same color across pages and reloads, ignoring case. Tags belong to the task whose text contains them; prose in nested tasks has its own tags.

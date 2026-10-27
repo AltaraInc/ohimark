@@ -25,6 +25,7 @@
     check: '<svg class="ohm-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 6 9 17l-5-5"/></svg>',
     code: '<svg class="ohm-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m9 8-5 4 5 4M15 8l5 4-5 4"/></svg>',
     sort: '<svg class="ohm-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 6h16M4 12h10M4 18h4M17 12v8m-3-3 3 3 3-3"/></svg>',
+    reset: '<svg class="ohm-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 11a9 9 0 1 1 2.6 7M3 4v7h7"/></svg>',
     fullscreen: '<svg class="ohm-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3"/></svg>',
     fullscreenExit: '<svg class="ohm-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 3v3a2 2 0 0 1-2 2H3M16 3v3a2 2 0 0 0 2 2h3M21 16h-3a2 2 0 0 0-2 2v3M8 21v-3a2 2 0 0 0-2-2H3"/></svg>',
   };
@@ -847,6 +848,7 @@
   var desktopSidebarCollapsed = false;
   var navigationWasMobile = false;
   var refreshSidebarGroupSizes = function () {};
+  var refreshTableSizes = function () {};
 
   function readPanelCollapsed(key) {
     try {
@@ -917,6 +919,7 @@
       : (expanded ? "Collapse navigation" : "Expand navigation");
     syncPanelButton(navButton, label, expanded);
     refreshSidebarGroupSizes();
+    refreshTableSizes();
   }
 
   function toggleNavigation() {
@@ -967,6 +970,7 @@
     if (!outlineState || !outlineButton) return;
     var expanded = !outlineState.checked;
     syncPanelButton(outlineButton, expanded ? "Collapse page outline" : "Expand page outline", expanded);
+    refreshTableSizes();
   }
 
   outlineButton = enhancePanelButton(outlineState, 'label.ohm-outline-button[for="ohm-outline-state"]', "ohm-outline");
@@ -1436,7 +1440,459 @@
   enhanceSidebarGroupScrolling();
 
   /* =======================================================================
-     7. One delegated click listener for every interactive control above,
+     7. Table widths: independent columns and best-effort per-page
+     preferences for the current browsing session.
+     ======================================================================= */
+
+  function enhanceTables() {
+    var tables = document.querySelectorAll(".ohm-content table");
+    if (!tables.length) return;
+
+    var minimum = 48;
+    var entries = [];
+    var occurrences = new Map();
+    var preferences = Object.create(null);
+    var storageKey = null;
+    var storedValue = null;
+    var active = null;
+
+    function sum(widths) {
+      return widths.reduce(function (total, width) { return total + width; }, 0);
+    }
+
+    function computed(element) {
+      try { return window.getComputedStyle(element); }
+      catch (err) { return {}; }
+    }
+
+    function number(style, property) {
+      return parseFloat(style[property]) || 0;
+    }
+
+    function setStyle(element, property, value) {
+      if (element.style[property] !== value) element.style[property] = value;
+    }
+
+    function measureChrome(entry) {
+      var style = computed(entry.table);
+      entry.borderLeft = number(style, "borderLeftWidth");
+      entry.chrome = entry.borderLeft + number(style, "borderRightWidth");
+    }
+
+    function readWidths(entry) {
+      if (entry.widths) return entry.widths.slice();
+      var widths = entry.headers.map(function (header) {
+        return header.getBoundingClientRect().width;
+      });
+      return widths.every(function (width) { return Number.isFinite(width) && width > 0; })
+        ? widths.map(function (width) { return Math.max(minimum, width); }) : null;
+    }
+
+    function validWidths(widths, count) {
+      return Array.isArray(widths) && widths.length === count && widths.every(function (width) {
+        return typeof width === "number" && Number.isFinite(width) && width >= minimum;
+      }) && Number.isFinite(sum(widths));
+    }
+
+    // A table viewport can break out of the prose measure, but never out of
+    // the main pane. Nested tables retain the containing block's indentation.
+    function viewport(entry, outerWidth) {
+      var frame = entry.frame.getBoundingClientRect();
+      if (!entry.breakout || !entry.main) {
+        return { left: frame.left, width: frame.width };
+      }
+      var article = entry.article.getBoundingClientRect();
+      var main = entry.main.getBoundingClientRect();
+      var style = computed(entry.main);
+      var left = main.left + number(style, "borderLeftWidth") + number(style, "paddingLeft");
+      var right = main.right - number(style, "borderRightWidth") - number(style, "paddingRight");
+      var available = Math.max(0, right - left);
+      if (!(article.width > 0) || !(available > 0)) return { left: frame.left, width: frame.width };
+      var width = Math.min(Math.max(article.width, outerWidth || article.width), available);
+      return {
+        left: Math.max(left, Math.min(article.left + (article.width - width) / 2, right - width)),
+        width: width,
+        articleLeft: article.left,
+      };
+    }
+
+    function syncHandles(entry) {
+      var widths = readWidths(entry);
+      if (!widths) return;
+      entry.handles.forEach(function (handle, index) {
+        handle.setAttribute("aria-valuenow", String(widths[index]));
+        handle.setAttribute("aria-valuetext", Math.round(widths[index]) + " pixels");
+      });
+      entry.reset.disabled = !entry.widths;
+    }
+
+    function refreshEntry(entry) {
+      measureChrome(entry);
+      var outer = entry.widths ? sum(entry.widths) + entry.chrome : null;
+      if (outer !== null) {
+        if (active && active.entry === entry) {
+          active.extent = Math.max(active.extent, outer);
+          setStyle(active.spacer, "width", active.extent + "px");
+        }
+        setStyle(entry.table, "width", outer + "px");
+        setStyle(entry.canvas, "width", outer + "px");
+      }
+      var bounds = viewport(entry, outer);
+      if (entry.breakout && bounds.articleLeft !== undefined) {
+        setStyle(entry.frame, "width", bounds.width + "px");
+        setStyle(entry.frame, "marginInlineStart", (bounds.left - bounds.articleLeft) + "px");
+        setStyle(entry.frame, "marginInlineEnd", "0px");
+      } else {
+        setStyle(entry.frame, "width", "100%");
+        setStyle(entry.frame, "marginInlineStart", "0px");
+        setStyle(entry.frame, "marginInlineEnd", "0px");
+      }
+      if (outer === null) {
+        // Measure automatic layout against the viewport, not the previous
+        // canvas width. A table's column minima can make it wider than that
+        // viewport; the control footer must follow its actual width.
+        setStyle(entry.canvas, "width", "");
+        var measured = entry.table.getBoundingClientRect().width;
+        if (Number.isFinite(measured) && measured > 0) setStyle(entry.canvas, "width", measured + "px");
+      }
+      syncHandles(entry);
+    }
+
+    function applyWidths(entry, widths) {
+      entry.widths = widths ? widths.slice() : null;
+      entry.table.classList.toggle("ohm-table--fixed", !!widths);
+      if (widths) {
+        if (!entry.colgroup) {
+          entry.colgroup = document.createElement("colgroup");
+          entry.columns = widths.map(function () {
+            var column = document.createElement("col");
+            entry.colgroup.appendChild(column);
+            return column;
+          });
+          entry.table.insertBefore(entry.colgroup, entry.table.firstChild);
+        }
+        widths.forEach(function (width, index) {
+          entry.columns[index].style.width = width + "px";
+        });
+      } else {
+        if (entry.colgroup) entry.table.removeChild(entry.colgroup);
+        entry.colgroup = null;
+        entry.columns = null;
+        entry.table.style.width = entry.originalWidth;
+        entry.canvas.style.width = "";
+      }
+      refreshEntry(entry);
+    }
+
+    function writePreferences() {
+      var value = Object.keys(preferences).length ? JSON.stringify(preferences) : null;
+      if (!storageKey || value === storedValue) return;
+      try {
+        if (value === null) window.sessionStorage.removeItem(storageKey);
+        else window.sessionStorage.setItem(storageKey, value);
+        storedValue = value;
+      } catch (err) { /* Resizing still works when persistence is unavailable. */ }
+    }
+
+    function save(entry) {
+      if (entry.widths) preferences[entry.key] = entry.widths.slice();
+      else delete preferences[entry.key];
+      writePreferences();
+    }
+
+    function different(left, right) {
+      return left.some(function (width, index) { return Math.abs(width - right[index]) > 0.001; });
+    }
+
+    function minimumTotal(widths, index) {
+      return sum(widths) - widths[index] + minimum;
+    }
+
+    function resized(widths, index, total) {
+      var originalTotal = sum(widths);
+      total = Math.max(minimumTotal(widths, index), total);
+      return widths.map(function (width, column) {
+        return column === index ? Math.max(minimum, total - originalTotal + width) : width;
+      });
+    }
+
+    function boundary(entry, widths, index) {
+      var total = sum(widths) + entry.chrome;
+      var bounds = viewport(entry, total);
+      var offset = entry.borderLeft + sum(widths.slice(0, index + 1));
+      return bounds.left + offset - entry.scroll.scrollLeft;
+    }
+
+    function finishDrag(commit) {
+      if (!active) return;
+      var drag = active;
+      active = null;
+      window.removeEventListener("pointermove", moveDrag);
+      window.removeEventListener("pointerup", endDrag);
+      window.removeEventListener("pointercancel", cancelDrag);
+      document.removeEventListener("keydown", dragKey);
+      drag.handle.removeEventListener("lostpointercapture", cancelDrag);
+      document.documentElement.classList.remove("ohm-table-resizing");
+      try {
+        if (typeof drag.handle.releasePointerCapture === "function") drag.handle.releasePointerCapture(drag.pointerId);
+      } catch (err) { /* Capture may already have been lost. */ }
+      if (!commit || !drag.entry.widths || !different(drag.widths, drag.entry.widths)) {
+        applyWidths(drag.entry, drag.previous);
+        drag.entry.scroll.scrollLeft = drag.scrollLeft;
+      } else save(drag.entry);
+      // Keep the initial scroll extent until the final dimensions are chosen.
+      // Removing it earlier lets a shrinking canvas clamp scrollLeft between
+      // pointer events and repeatedly apply the same apparent pointer delta.
+      drag.entry.scroll.removeChild(drag.spacer);
+    }
+
+    function cancelDrag(event) {
+      if (active && (!event || event.pointerId === undefined || event.pointerId === active.pointerId)) finishDrag(false);
+    }
+
+    function dragKey(event) {
+      if (event.key === "Escape" && active) {
+        event.preventDefault();
+        event.stopPropagation();
+        finishDrag(false);
+      }
+    }
+
+    function moveDrag(event) {
+      if (!active || (event.pointerId !== undefined && event.pointerId !== active.pointerId) || !Number.isFinite(event.clientX)) return;
+      var drag = active;
+      if (event.clientX === drag.startX && drag.entry.scroll.scrollLeft === drag.scrollLeft) {
+        if (drag.entry.widths) applyWidths(drag.entry, drag.previous);
+        return;
+      }
+      var target = event.clientX - drag.pointerOffset;
+      // The centered frame moves left while expanding between the prose and
+      // main-pane widths. Invert that monotonic geometry instead of treating
+      // clientX delta as a column delta; include current internal scrolling.
+      var low = minimumTotal(drag.widths, drag.index);
+      var high = Math.max(sum(drag.widths), low + 1);
+      function position(total) { return boundary(drag.entry, resized(drag.widths, drag.index, total), drag.index); }
+      for (var attempts = 0; position(high) < target && attempts < 40; attempts += 1) high *= 2;
+      if (!Number.isFinite(high)) return;
+      for (var step = 0; step < 48; step += 1) {
+        var middle = (low + high) / 2;
+        if (position(middle) < target) low = middle;
+        else high = middle;
+      }
+      var widths = resized(drag.widths, drag.index, (low + high) / 2);
+      if (different(drag.widths, widths) || drag.entry.widths) applyWidths(drag.entry, widths);
+      event.preventDefault();
+    }
+
+    function endDrag(event) {
+      if (!active || (event.pointerId !== undefined && event.pointerId !== active.pointerId)) return;
+      moveDrag(event);
+      finishDrag(true);
+    }
+
+    function startDrag(event, entry, index, handle) {
+      if (active || event.isPrimary === false || (event.button !== undefined && event.button !== 0) || !Number.isFinite(event.clientX)) return;
+      measureChrome(entry);
+      var widths = readWidths(entry);
+      if (!widths) return;
+      var spacer = document.createElement("div");
+      spacer.className = "ohm-table-drag-spacer";
+      spacer.setAttribute("aria-hidden", "true");
+      var extent = Math.max(entry.scroll.scrollWidth || 0, entry.table.getBoundingClientRect().width);
+      spacer.style.width = extent + "px";
+      spacer.style.height = "0px";
+      spacer.style.pointerEvents = "none";
+      entry.scroll.appendChild(spacer);
+      var offset = entry.borderLeft + sum(widths.slice(0, index + 1));
+      active = {
+        entry: entry, index: index, handle: handle, widths: widths,
+        previous: entry.widths ? entry.widths.slice() : null,
+        pointerId: event.pointerId,
+        pointerOffset: event.clientX - entry.table.getBoundingClientRect().left - offset,
+        scrollLeft: entry.scroll.scrollLeft,
+        startX: event.clientX, spacer: spacer, extent: extent,
+      };
+      window.addEventListener("pointermove", moveDrag);
+      window.addEventListener("pointerup", endDrag);
+      window.addEventListener("pointercancel", cancelDrag);
+      document.addEventListener("keydown", dragKey);
+      handle.addEventListener("lostpointercapture", cancelDrag);
+      document.documentElement.classList.add("ohm-table-resizing");
+      if (typeof handle.focus === "function") handle.focus();
+      try {
+        if (typeof handle.setPointerCapture === "function") handle.setPointerCapture(event.pointerId);
+      } catch (err) { /* Window listeners also support uncaptured pointers. */ }
+      event.preventDefault();
+    }
+
+    function makeHandle(entry, index, label) {
+      var handle = document.createElement("span");
+      handle.className = "ohm-table-column-handle";
+      handle.setAttribute("role", "separator");
+      handle.setAttribute("aria-orientation", "vertical");
+      handle.setAttribute("tabindex", "0");
+      handle.setAttribute("aria-label", label);
+      handle.setAttribute("aria-valuemin", String(minimum));
+      handle.setAttribute("title", label + "; drag or use Left/Right arrows (Shift for 10 pixels)");
+      handle.addEventListener("pointerdown", function (event) { startDrag(event, entry, index, handle); });
+      handle.addEventListener("keydown", function (event) {
+        if (event.key === "Escape") { dragKey(event); return; }
+        if (active || (event.key !== "ArrowLeft" && event.key !== "ArrowRight")) return;
+        var widths = readWidths(entry);
+        if (!widths) return;
+        var delta = (event.key === "ArrowLeft" ? -1 : 1) * (event.shiftKey ? 10 : 1);
+        var next = resized(widths, index, sum(widths) + delta);
+        if (different(widths, next)) { applyWidths(entry, next); save(entry); }
+        event.preventDefault();
+        event.stopPropagation();
+      });
+      return handle;
+    }
+
+    tables.forEach(function (table) {
+      if (table.querySelector("table") || table.querySelector("colgroup") || (table.parentElement && table.parentElement.closest("table"))) return;
+      var headerRows = table.querySelectorAll("thead tr");
+      var rows = Array.from(table.querySelectorAll("tr"));
+      if (headerRows.length !== 1) return;
+      var headers = Array.from(headerRows[0].children).filter(function (cell) { return cell.tagName === "TH" || cell.tagName === "TD"; });
+      if (!headers.length || !rows.every(function (row) {
+        var cells = Array.from(row.children).filter(function (cell) { return cell.tagName === "TH" || cell.tagName === "TD"; });
+        return cells.length === headers.length && cells.every(function (cell) {
+          return (!cell.hasAttribute("colspan") || cell.getAttribute("colspan") === "1")
+            && (!cell.hasAttribute("rowspan") || cell.getAttribute("rowspan") === "1");
+        });
+      })) return;
+
+      var labels = headers.map(function (header) { return header.textContent.replace(/\s+/g, " ").trim(); });
+      var signature = JSON.stringify([headers.length, labels]);
+      var occurrence = occurrences.get(signature) || 0;
+      occurrences.set(signature, occurrence + 1);
+      var parent = table.parentElement;
+      var article = table.closest(".ohm-content");
+      var originalStyle = computed(table);
+      var frame = document.createElement("div");
+      frame.className = "ohm-table-frame";
+      if (originalStyle.marginTop) frame.style.marginTop = originalStyle.marginTop;
+      if (originalStyle.marginBottom) frame.style.marginBottom = originalStyle.marginBottom;
+      var scroll = document.createElement("div");
+      scroll.className = "ohm-table-scroll";
+      var canvas = document.createElement("div");
+      canvas.className = "ohm-table-canvas";
+      var actions = document.createElement("div");
+      actions.className = "ohm-table-actions";
+      var reset = document.createElement("button");
+      reset.type = "button";
+      reset.className = "ohm-icon-button ohm-table-reset";
+      reset.setAttribute("aria-label", "Reset widths");
+      reset.setAttribute("title", "Reset widths");
+      reset.innerHTML = ICONS.reset;
+      reset.disabled = true;
+      parent.insertBefore(frame, table);
+      frame.appendChild(scroll);
+      scroll.appendChild(canvas);
+      canvas.appendChild(table);
+      var footer = Array.from(table.children).find(function (child) { return child.tagName === "TFOOT"; });
+      if (!footer) {
+        footer = document.createElement("tfoot");
+        table.appendChild(footer);
+      }
+      var controlsRow = document.createElement("tr");
+      controlsRow.className = "ohm-table-controls-row";
+      var controlsCell = document.createElement("td");
+      controlsCell.className = "ohm-table-controls-cell";
+      controlsCell.setAttribute("colspan", String(headers.length));
+      footer.appendChild(controlsRow);
+      controlsRow.appendChild(controlsCell);
+      controlsCell.appendChild(actions);
+      actions.appendChild(reset);
+      var entry = {
+        table: table, headers: headers, frame: frame, scroll: scroll, canvas: canvas, reset: reset,
+        article: article, main: article.closest(".ohm-main"), breakout: parent === article,
+        originalWidth: table.style.width || "", widths: null, colgroup: null, columns: null,
+        chrome: 0, borderLeft: 0, key: JSON.stringify([headers.length, labels, occurrence]),
+      };
+      table.classList.add("ohm-table-resizable");
+      entry.handles = headers.map(function (header, index) {
+        header.classList.add("ohm-table-column-header");
+        var handle = makeHandle(entry, index, "Resize column " + (labels[index] || (index + 1)));
+        header.appendChild(handle);
+        return handle;
+      });
+      reset.addEventListener("click", function () {
+        if (active) finishDrag(false);
+        applyWidths(entry, null);
+        entry.scroll.scrollLeft = 0;
+        save(entry);
+      });
+      entries.push(entry);
+    });
+    if (!entries.length) return;
+
+    var brand = document.querySelector(".ohm-brand[href]");
+    if (brand) {
+      try {
+        var page = new URL(document.URL || window.location.href);
+        page.search = "";
+        page.hash = "";
+        storageKey = "ohimark-table-widths:" + JSON.stringify([brand.href, page.href]);
+      } catch (err) { /* Missing page identity disables persistence, not resizing. */ }
+    }
+    var dirty = false;
+    if (storageKey) {
+      try {
+        storedValue = window.sessionStorage.getItem(storageKey);
+        var saved = JSON.parse(storedValue);
+        if (saved && typeof saved === "object" && !Array.isArray(saved)) {
+          var known = new Map(entries.map(function (entry) { return [entry.key, entry]; }));
+          Object.keys(saved).forEach(function (key) {
+            var entry = known.get(key);
+            if (entry && validWidths(saved[key], entry.headers.length)) preferences[key] = saved[key].slice();
+            else dirty = true;
+          });
+        } else if (storedValue !== null) dirty = true;
+      } catch (err) { dirty = storedValue !== null; }
+    }
+    entries.forEach(function (entry) {
+      if (preferences[entry.key]) applyWidths(entry, preferences[entry.key]);
+      else refreshEntry(entry);
+    });
+    if (dirty) writePreferences();
+
+    var scheduled = false;
+    refreshTableSizes = function () {
+      if (scheduled) return;
+      scheduled = true;
+      function run() {
+        scheduled = false;
+        entries.forEach(refreshEntry);
+      }
+      if (typeof window.requestAnimationFrame === "function") window.requestAnimationFrame(run);
+      else run();
+    };
+    window.addEventListener("resize", refreshTableSizes);
+    if (navState) navState.addEventListener("change", refreshTableSizes);
+    if (outlineState) outlineState.addEventListener("change", refreshTableSizes);
+    if (typeof window.ResizeObserver === "function") {
+      try {
+        var observer = new window.ResizeObserver(refreshTableSizes);
+        var observed = new Set();
+        entries.forEach(function (entry) {
+          [entry.main, entry.article].forEach(function (element) {
+            if (element && !observed.has(element)) { observed.add(element); observer.observe(element); }
+          });
+        });
+      } catch (err) { /* Explicit panel, font and viewport refreshes remain available. */ }
+    }
+    if (document.fonts) {
+      if (document.fonts.ready && typeof document.fonts.ready.then === "function") document.fonts.ready.then(refreshTableSizes, function () {});
+      if (typeof document.fonts.addEventListener === "function") document.fonts.addEventListener("loadingdone", refreshTableSizes);
+    }
+  }
+
+  enhanceTables();
+
+  /* =======================================================================
+     8. One delegated click listener for every interactive control above,
      plus closing the mobile sidebar drawer on navigation.
      ======================================================================= */
 

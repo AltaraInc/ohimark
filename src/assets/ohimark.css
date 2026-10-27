@@ -780,6 +780,183 @@ img {
   overflow-x: auto;
 }
 
+/* JavaScript wraps supported tables so wide layouts can use the main pane
+   while keeping their own horizontal scroll boundary. */
+.ohm-content .ohm-table-frame {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  margin: 0 0 1rem;
+}
+
+.ohm-content .ohm-table-scroll {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-inline: contain;
+}
+
+.ohm-content .ohm-table-canvas {
+  position: relative;
+  box-sizing: content-box;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+}
+
+/* The class raises specificity above both embedded presentation presets. */
+.ohm-content table.ohm-table-resizable {
+  display: table;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  overflow: visible;
+  table-layout: auto;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.ohm-content table.ohm-table-resizable > * {
+  min-width: 0;
+}
+
+.ohm-content table.ohm-table-resizable th,
+.ohm-content table.ohm-table-resizable td {
+  box-sizing: border-box;
+  min-width: 48px;
+  overflow-wrap: anywhere;
+}
+
+.ohm-content table.ohm-table-resizable.ohm-table--fixed {
+  table-layout: fixed;
+}
+
+.ohm-content table.ohm-table-resizable img {
+  max-width: 100%;
+  height: auto;
+}
+
+.ohm-content .ohm-table-column-header {
+  position: relative;
+  height: 1.5rem;
+  overflow: visible;
+}
+
+.ohm-content .ohm-table-column-handle {
+  position: absolute;
+  z-index: 2;
+  inset-block: 2px;
+  inset-inline-end: -6px;
+  box-sizing: border-box;
+  display: block;
+  width: 12px;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+}
+
+.ohm-content .ohm-table-column-handle::before,
+.ohm-content .ohm-table-column-handle::after {
+  position: absolute;
+  inset-block-start: 50%;
+  width: 1px;
+  height: 12px;
+  border-radius: 1px;
+  content: "";
+  background: var(--ohm-muted);
+  opacity: 0.6;
+  transform: translateY(-50%);
+}
+
+.ohm-content .ohm-table-column-handle::before {
+  inset-inline-start: calc(50% - 2.5px);
+}
+
+.ohm-content .ohm-table-column-handle::after {
+  inset-inline-start: calc(50% + 1.5px);
+}
+
+.ohm-content .ohm-table-column-handle:hover::before,
+.ohm-content .ohm-table-column-handle:hover::after,
+.ohm-content .ohm-table-column-handle:focus-visible::before,
+.ohm-content .ohm-table-column-handle:focus-visible::after,
+.ohm-content .ohm-table-column-handle:active::before,
+.ohm-content .ohm-table-column-handle:active::after {
+  background: var(--ohm-accent);
+  opacity: 1;
+}
+
+/* Keep the final boundary control, its focus ring, and indicator inside the
+   table's right edge so an otherwise fitting table does not gain overflow. */
+.ohm-content table.ohm-table-resizable > thead > tr > .ohm-table-column-header:last-child .ohm-table-column-handle {
+  inset-inline-end: 2px;
+}
+
+.ohm-content table.ohm-table-resizable .ohm-table-controls-cell {
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 2px;
+  border: 0;
+  line-height: 1;
+}
+
+.ohm-content .ohm-table-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+}
+
+.ohm-content .ohm-table-actions .ohm-icon-button {
+  box-sizing: border-box;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  min-width: 0;
+  padding: 0;
+}
+
+.ohm-content .ohm-table-reset:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.ohm-content .ohm-table-column-handle:focus-visible,
+.ohm-content .ohm-table-reset:focus-visible {
+  outline: 2px solid var(--ohm-accent);
+  outline-offset: -2px;
+}
+
+.ohm-table-resizing,
+.ohm-table-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+
+@media (pointer: coarse) {
+  .ohm-content .ohm-table-column-header {
+    height: 2rem;
+  }
+
+  .ohm-content .ohm-table-column-handle {
+    inset-inline-end: -12px;
+    width: 24px;
+  }
+
+  .ohm-content .ohm-table-actions .ohm-icon-button {
+    flex-basis: 32px;
+    width: 32px;
+    height: 32px;
+  }
+}
+
 .ohm-content pre {
   position: relative;
   overflow-x: auto;
