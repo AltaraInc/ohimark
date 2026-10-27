@@ -95,17 +95,20 @@ class Element extends Events {
   constructor(tagName, ownerDocument) {
     super();
     this.tagName = tagName.toUpperCase();
+    this.nodeName = this.tagName;
+    this.nodeType = 1;
     this.ownerDocument = ownerDocument;
     this.attributes = new Map();
-    this.children = [];
+    this._children = [];
     this.parentNode = null;
     this.style = styleDeclaration();
     this.checked = false;
-    this._text = "";
   }
   get parentElement() { return this.parentNode; }
-  get firstChild() { return this.children[0] || null; }
-  get firstElementChild() { return this.firstChild; }
+  get childNodes() { return this._children; }
+  get children() { return this._children.filter((node) => node.nodeType === 1); }
+  get firstChild() { return this._children[0] || null; }
+  get firstElementChild() { return this.children[0] || null; }
   get id() { return this.getAttribute("id") || ""; }
   set id(value) { this.setAttribute("id", value); }
   get className() { return this.getAttribute("class") || ""; }
@@ -123,10 +126,10 @@ class Element extends Events {
       },
     };
   }
-  get textContent() { return this._text + this.children.map((child) => child.textContent).join(""); }
+  get textContent() { return this.childNodes.map((child) => child.textContent).join(""); }
   set textContent(value) {
-    for (const child of [...this.children]) this.removeChild(child);
-    this._text = String(value);
+    for (const child of [...this.childNodes]) this.removeChild(child);
+    if (String(value)) this.appendChild(new TextNode(String(value), this.ownerDocument));
   }
   get innerHTML() { return this._html || ""; }
   set innerHTML(value) { this.textContent = ""; this._html = String(value); }
@@ -137,6 +140,10 @@ class Element extends Events {
   set colSpan(value) { this.setAttribute("colspan", value); }
   get rowSpan() { return Number(this.getAttribute("rowspan") || 1); }
   set rowSpan(value) { this.setAttribute("rowspan", value); }
+  get hidden() { return this.hasAttribute("hidden"); }
+  set hidden(value) { if (value) this.setAttribute("hidden", ""); else this.removeAttribute("hidden"); }
+  get inert() { return this.hasAttribute("inert"); }
+  set inert(value) { if (value) this.setAttribute("inert", ""); else this.removeAttribute("inert"); }
   get tHead() { return this.children.find((child) => child.tagName === "THEAD") || null; }
   get rows() { return this.querySelectorAll("tr"); }
   get cells() { return this.children.filter((child) => child.tagName === "TD" || child.tagName === "TH"); }
@@ -147,16 +154,16 @@ class Element extends Events {
   appendChild(child) { return this.insertBefore(child, null); }
   insertBefore(child, reference) {
     if (child.parentNode) child.parentNode.removeChild(child);
-    const index = reference === null ? this.children.length : this.children.indexOf(reference);
+    const index = reference === null ? this._children.length : this._children.indexOf(reference);
     assert.ok(index >= 0, "insertBefore reference belongs to parent");
-    this.children.splice(index, 0, child);
+    this._children.splice(index, 0, child);
     child.parentNode = this;
     return child;
   }
   removeChild(child) {
-    const index = this.children.indexOf(child);
+    const index = this._children.indexOf(child);
     assert.ok(index >= 0, "removeChild node belongs to parent");
-    this.children.splice(index, 1);
+    this._children.splice(index, 1);
     child.parentNode = null;
     return child;
   }
@@ -215,6 +222,18 @@ class Element extends Events {
   set scrollLeft(value) { this._scrollLeft = Math.max(0, Number(value) || 0); }
 }
 
+class TextNode {
+  constructor(text, ownerDocument) {
+    this.nodeType = 3;
+    this.nodeName = "#text";
+    this.ownerDocument = ownerDocument;
+    this.parentNode = null;
+    this.textContent = text;
+  }
+  get parentElement() { return this.parentNode; }
+  remove() { this.parentNode?.removeChild(this); }
+}
+
 class Storage {
   constructor(entries = []) { this.entries = new Map(entries); this.calls = []; this.block = new Set(); }
   getItem(key) {
@@ -242,6 +261,7 @@ function fixture({ specs = [{}], site = SITE, page = PAGE, storage = new Storage
   document.ownerDocument = document;
   document.URL = page;
   document.createElement = (tag) => new Element(tag, document);
+  document.createTextNode = (text) => new TextNode(text, document);
   document.getElementById = (id) => document.querySelector("#" + id);
   const create = (tag, classes, parent, text = "") => {
     const element = document.createElement(tag);
@@ -436,6 +456,8 @@ function fixture({ specs = [{}], site = SITE, page = PAGE, storage = new Storage
   app.frame = (index = 0) => tables[index].closest(".ohm-table-frame");
   app.scroll = (index = 0) => app.frame(index)?.querySelector(".ohm-table-scroll");
   app.column = (index = 0, table = 0) => tables[table].querySelectorAll(".ohm-table-column-handle")[index];
+  app.toggleButton = (index = 0, table = 0) => tables[table].querySelectorAll(".ohm-table-column-toggle")[index];
+  app.toggle = (index = 0, table = 0) => { app.toggleButton(index, table).dispatchEvent({ type: "click" }); app.flush(); };
   app.reset = (table = 0) => { app.frame(table).querySelector(".ohm-table-reset").dispatchEvent({ type: "click" }); app.flush(); };
   app.key = (handle, key, shiftKey = false) => { const event = { type: "keydown", key, shiftKey }; handle.dispatchEvent(event); app.flush(); return event; };
   app.down = (handle, clientX, options = {}) => {
@@ -472,6 +494,17 @@ function boundary(app, index = 0, table = 0) {
 }
 function dragBy(app, handle, delta, x = handle.getBoundingClientRect().right) {
   app.down(handle, x); app.move(x + delta); app.up(x + delta);
+}
+function hidden(node) {
+  for (; node; node = node.parentElement) {
+    if (node.nodeType === 1 && (node.hidden || node.inert || node.style.display === "none")) return true;
+  }
+  return false;
+}
+function authoredCells(app, index, tableIndex = 0) {
+  const table = app.tables[tableIndex];
+  return table.querySelectorAll("tr").filter((row) => row.closest("table") === table
+    && !row.classList.contains("ohm-table-controls-row")).map((row) => row.cells[index]);
 }
 
 test("only simple rectangular tables receive working controls", () => {
@@ -955,4 +988,318 @@ test("programmatic navigation and outline toggles refresh breakout bounds withou
   closeWidths(app.widths(), [800, 800]);
   app.panel("nav");
   close(app.frame().getBoundingClientRect().width, 1100);
+});
+
+test("collapsing a column creates a 32px strip and gives its space to the remaining column", () => {
+  const app = fixture();
+  const button = app.toggleButton();
+  assert.equal(button.tagName, "BUTTON");
+  assert.equal(button.getAttribute("aria-expanded"), "true");
+  assert.equal(button.getAttribute("aria-label"), "Collapse column Name");
+  assert.equal(button.getAttribute("title"), "Collapse column Name");
+  assert.deepEqual(app.storage.writes, [], "adding collapse buttons does not save a layout");
+  app.toggle();
+  closeWidths(app.widths(), [32, 568]);
+  close(app.tables[0].getBoundingClientRect().width, 600);
+  assert.equal(button.getAttribute("aria-expanded"), "false");
+  assert.equal(button.getAttribute("aria-label"), "Expand column Name");
+  assert.equal(button.getAttribute("title"), "Expand column Name");
+  assert.equal(button.disabled, false);
+  for (const cell of authoredCells(app, 0)) {
+    assert.equal(cell.classList.contains("ohm-table-column-collapsed"), true);
+    assert.equal(cell.querySelector(".ohm-table-cell-content").hidden, true);
+  }
+  assert.equal(hidden(button), false, "restore button remains available inside collapsed header");
+  app.toggle();
+  closeWidths(app.widths(), [200, 400]);
+  assert.equal(button.getAttribute("aria-expanded"), "true");
+  for (const cell of authoredCells(app, 0)) {
+    assert.equal(cell.classList.contains("ohm-table-column-collapsed"), false);
+    assert.equal(cell.querySelector(".ohm-table-cell-content").hidden, false);
+  }
+});
+
+test("multiple collapse and expand orders preserve total width and recover original column widths", () => {
+  for (const order of [[0, 1, 0, 1], [0, 1, 1, 0], [1, 0, 0, 1], [1, 0, 1, 0], [2, 0, 2, 0]]) {
+    const app = fixture({ specs: [{ labels: ["A", "B", "C"], widths: [100, 200, 300] }] });
+    for (const index of order) {
+      app.toggle(index);
+      close(app.tables[0].getBoundingClientRect().width, 600, "toggle retains table width");
+      app.widths().forEach((width, column) => {
+        if (app.toggleButton(column).getAttribute("aria-expanded") === "false") close(width, 32);
+        else assert.ok(width >= 48);
+      });
+    }
+    closeWidths(app.widths(), [100, 200, 300]);
+    assert.deepEqual(app.saved()[tableKey(["A", "B", "C"])], [100, 200, 300]);
+  }
+});
+
+test("one column must remain expanded and single-column tables have no collapse controls", () => {
+  const app = fixture({ specs: [{ labels: ["A", "B", "C"], widths: [100, 200, 300] }] });
+  app.toggle(0); app.toggle(1);
+  closeWidths(app.widths(), [32, 32, 536]);
+  const last = app.toggleButton(2), writes = app.storage.writes.length;
+  assert.equal(last.disabled, true);
+  assert.match(last.getAttribute("title"), /one|last/i);
+  app.toggle(2);
+  closeWidths(app.widths(), [32, 32, 536]);
+  assert.equal(app.storage.writes.length, writes, "programmatic click cannot collapse the final expanded column");
+  assert.equal(app.toggleButton(0).disabled, false);
+  app.toggle(0);
+  assert.equal(last.disabled, false, "another expanded column makes collapse available again");
+  const single = fixture({ specs: [{ labels: ["Only"], widths: [600] }] });
+  assert.equal(single.tables[0].querySelector(".ohm-table-column-toggle"), null);
+  single.key(single.column(), "ArrowLeft");
+  closeWidths(single.widths(), [599]);
+});
+
+test("collapse hides rich authored header, body and footer nodes without replacing them or their handlers", () => {
+  let header, link, footerNode, headerText, linkClicks = 0;
+  const app = fixture({ specs: [{ footer: [["Total", "2"]] }], beforeRun({ document, tables }) {
+    const cells = tables[0].querySelectorAll("thead th, tbody td, tfoot td");
+    header = document.createElement("strong");
+    header.textContent = "Name";
+    headerText = header.firstChild;
+    cells[0].textContent = "";
+    cells[0].appendChild(header);
+    link = document.createElement("a");
+    link.textContent = "Details";
+    link.setAttribute("href", "details.html");
+    link.setAttribute("data-authored", "keep");
+    link.addEventListener("click", () => { linkClicks++; });
+    cells[2].appendChild(link);
+    footerNode = document.createElement("code");
+    footerNode.textContent = "Authored footer";
+    cells[4].appendChild(footerNode);
+  } });
+  link.focus();
+  app.toggle();
+  assert.equal(app.document.activeElement, app.toggleButton(), "focus moves to the restore control before focused content is hidden");
+  assert.equal(header.firstChild, headerText, "original text node survives wrapping");
+  for (const node of [header, link, footerNode]) {
+    assert.equal(node.closest("table"), app.tables[0]);
+    assert.equal(node.parentElement.className, "ohm-table-cell-content");
+    assert.equal(hidden(node), true, "authored content and focusable links are hidden");
+  }
+  assert.equal(link.getAttribute("href"), "details.html");
+  assert.equal(link.getAttribute("data-authored"), "keep");
+  assert.equal(app.tables[0].querySelector(".ohm-table-controls-cell").classList.contains("ohm-table-column-collapsed"), false);
+  assert.equal(hidden(app.frame().querySelector(".ohm-table-reset")), false);
+  app.toggle();
+  for (const node of [header, link, footerNode]) assert.equal(hidden(node), false);
+  link.dispatchEvent({ type: "click" });
+  assert.equal(linkClicks, 1, "authored listener remains attached after collapse and expand");
+  assert.equal(header.firstChild, headerText);
+});
+
+test("collapsed grips reject keyboard and pointer resizing while expanded grips remain independent", () => {
+  const app = fixture();
+  app.toggle();
+  const handle = app.column(), writes = app.storage.writes.length;
+  assert.equal(handle.hidden, true);
+  assert.equal(handle.getAttribute("aria-hidden"), "true");
+  assert.equal(handle.tabIndex, -1);
+  app.key(handle, "ArrowRight", true);
+  app.down(handle, boundary(app)); app.move(boundary(app) + 100); app.up(boundary(app) + 100);
+  closeWidths(app.widths(), [32, 568]);
+  assert.equal(app.storage.writes.length, writes);
+  assert.equal(app.document.documentElement.classList.contains("ohm-table-resizing"), false);
+  app.key(app.column(1), "ArrowRight", true);
+  closeWidths(app.widths(), [32, 578]);
+  close(app.tables[0].getBoundingClientRect().width, 610);
+  app.toggle();
+  assert.ok(app.widths().every((width) => width >= 48));
+  close(app.tables[0].getBoundingClientRect().width, 610, "restoring a column uses the current width budget");
+  assert.equal(handle.hidden, false);
+  assert.equal(handle.getAttribute("aria-hidden"), null);
+  assert.equal(handle.tabIndex, 0);
+  const restored = app.widths();
+  app.key(handle, "ArrowRight");
+  closeWidths(app.widths(), [restored[0] + 1, restored[1]]);
+});
+
+test("expanding grows the table only when expanded column minimums need more space", () => {
+  const app = fixture();
+  app.toggle();
+  dragBy(app, app.column(1), -2000, boundary(app, 1));
+  closeWidths(app.widths(), [32, 48]);
+  close(app.tables[0].getBoundingClientRect().width, 80);
+  app.toggle();
+  closeWidths(app.widths(), [48, 48]);
+  close(app.tables[0].getBoundingClientRect().width, 96);
+});
+
+test("collapsing during a drag cancels transient widths before applying the collapse", () => {
+  const app = fixture();
+  const start = boundary(app, 1);
+  app.down(app.column(1), start);
+  app.move(start + 50);
+  assert.ok(app.widths()[1] > 400);
+  app.toggle(0);
+  closeWidths(app.widths(), [32, 568]);
+  close(app.tables[0].getBoundingClientRect().width, 600);
+  assert.equal(app.frame().querySelector(".ohm-table-drag-spacer"), null);
+  assert.equal(app.document.documentElement.classList.contains("ohm-table-resizing"), false);
+  app.move(start + 150); app.up(start + 150);
+  closeWidths(app.widths(), [32, 568]);
+  assert.equal(app.storage.writes.length, 1, "only committed collapse state is saved");
+});
+
+test("reset expands all columns and clears only the selected table's combined layout", () => {
+  const app = fixture({ specs: [{}, {}] });
+  app.toggle(0, 0);
+  app.toggle(1, 1);
+  const other = app.saved()[tableKey(undefined, 1)];
+  app.reset(0);
+  closeWidths(app.widths(0), [200, 400]);
+  assert.equal(app.tables[0].classList.contains("ohm-table--fixed"), false);
+  assert.equal(app.tables[0].querySelector("colgroup"), null);
+  assert.equal(app.saved()[tableKey()], undefined);
+  assert.deepEqual(app.saved()[tableKey(undefined, 1)], other);
+  for (const cell of authoredCells(app, 0)) {
+    assert.equal(cell.classList.contains("ohm-table-column-collapsed"), false);
+    assert.equal(cell.querySelector(".ohm-table-cell-content").hidden, false);
+  }
+  assert.equal(app.toggleButton(0).getAttribute("aria-expanded"), "true");
+  assert.equal(app.frame().querySelector(".ohm-table-reset").disabled, true);
+});
+
+test("collapsed layouts round trip through session storage without rewriting valid state", () => {
+  const app = fixture();
+  app.toggle();
+  const saved = app.saved()[tableKey()];
+  assert.deepEqual(saved, { widths: [32, 568], collapsed: [true, false], expanded: [200, 400] });
+  const writes = app.storage.writes.length;
+  const restored = fixture({ storage: app.storage });
+  closeWidths(restored.widths(), [32, 568]);
+  assert.equal(restored.toggleButton().getAttribute("aria-expanded"), "false");
+  assert.equal(restored.column().hidden, true);
+  assert.equal(app.storage.writes.length, writes);
+  restored.toggle();
+  closeWidths(restored.widths(), [200, 400]);
+  assert.deepEqual(restored.saved()[tableKey()], [200, 400], "all-open state retains the legacy width-array shape");
+  const again = fixture({ storage: app.storage });
+  closeWidths(again.widths(), [200, 400]);
+  const fresh = fixture();
+  assert.equal(fresh.toggleButton().getAttribute("aria-expanded"), "true");
+  assert.deepEqual(fresh.storage.writes, []);
+});
+
+test("old width arrays restore unchanged and become combined layouts only after collapsing", () => {
+  const storage = new Storage([[storageKey(), JSON.stringify({ [tableKey()]: [210, 390] })]]);
+  const app = fixture({ storage });
+  closeWidths(app.widths(), [210, 390]);
+  assert.deepEqual(storage.writes, []);
+  assert.equal(app.toggleButton().getAttribute("aria-expanded"), "true");
+  app.toggle();
+  assert.deepEqual(app.saved()[tableKey()], { widths: [32, 568], collapsed: [true, false], expanded: [210, 390] });
+  app.toggle();
+  closeWidths(app.widths(), [210, 390]);
+});
+
+test("resizing with a collapsed column persists rebased open widths that restore without cleanup", () => {
+  const specs = [{ labels: ["A", "B", "C"], widths: [100, 200, 300] }];
+  const app = fixture({ specs });
+  app.toggle(0);
+  const before = app.widths();
+  app.key(app.column(1), "ArrowRight", true);
+  const widths = app.widths();
+  closeWidths(widths, [32, before[1] + 10, before[2]]);
+  const saved = app.saved()[tableKey(["A", "B", "C"])];
+  closeWidths(saved.expanded, [100, widths[1], widths[2]]);
+  const writes = app.storage.writes.length;
+  const restored = fixture({ specs, storage: app.storage });
+  closeWidths(restored.widths(), widths);
+  assert.equal(app.storage.writes.length, writes, "valid resized collapse state is restored without cleanup or migration");
+  restored.toggle(0);
+  assert.ok(restored.widths().every((width) => width >= 48));
+  close(restored.tables[0].getBoundingClientRect().width, 610);
+});
+
+test("invalid combined layouts are discarded without hiding content or disabling collapse", () => {
+  const valid = { widths: [32, 568], collapsed: [true, false], expanded: [200, 400] };
+  const invalid = [
+    { ...valid, collapsed: [true] }, { ...valid, collapsed: [1, false] },
+    { ...valid, collapsed: [true, true] }, { ...valid, collapsed: [false, false] },
+    { ...valid, collapsed: null }, { ...valid, widths: [32] },
+    { ...valid, widths: [48, 552] }, { ...valid, widths: [32, 47] },
+    { ...valid, widths: [32, "568"] }, { ...valid, widths: [32, null] },
+    { ...valid, expanded: [200] }, { ...valid, expanded: [47, 400] },
+    { ...valid, expanded: [200, "400"] }, { ...valid, expanded: [Number.MAX_VALUE, Number.MAX_VALUE] },
+  ];
+  for (const state of invalid) {
+    const storage = new Storage([[storageKey(), JSON.stringify({ [tableKey()]: state })]]);
+    const app = fixture({ storage });
+    closeWidths(app.widths(), [200, 400]);
+    assert.equal(app.toggleButton().getAttribute("aria-expanded"), "true");
+    assert.equal(storage.entries.has(storageKey()), false);
+    app.toggle();
+    closeWidths(app.widths(), [32, 568]);
+  }
+  const labels = ["A", "B", "C"];
+  const inconsistent = { widths: [32, 200, 368], collapsed: [true, false, false], expanded: [100, 200, 300] };
+  const storage = new Storage([[storageKey(), JSON.stringify({ [tableKey(labels)]: inconsistent })]]);
+  const app = fixture({ specs: [{ labels, widths: [100, 200, 300] }], storage });
+  closeWidths(app.widths(), [100, 200, 300]);
+  assert.equal(storage.entries.has(storageKey()), false, "noncanonical rendered widths cannot corrupt remembered toggle proportions");
+});
+
+test("blocked session storage leaves collapse, visible resizing and reset usable", () => {
+  for (const failure of ["get", "set", "remove", "getter"]) {
+    const storage = new Storage();
+    if (failure !== "getter") storage.block.add(failure);
+    const app = fixture({ storage, blockedStorageGetter: failure === "getter" });
+    app.toggle();
+    closeWidths(app.widths(), [32, 568]);
+    app.key(app.column(1), "ArrowRight");
+    closeWidths(app.widths(), [32, 569]);
+    app.reset();
+    closeWidths(app.widths(), [200, 400]);
+    assert.equal(app.toggleButton().getAttribute("aria-expanded"), "true");
+  }
+});
+
+test("collapsed strips survive viewport changes and scrolled drag cancellation", () => {
+  const storage = new Storage([[storageKey(), JSON.stringify({ [tableKey()]: [600, 600] })]]);
+  const app = fixture({ storage, mainWidth: 540 });
+  app.toggle();
+  closeWidths(app.widths(), [32, 1168]);
+  app.resize(440);
+  closeWidths(app.widths(), [32, 1168]);
+  close(app.scroll().clientWidth, 400);
+  app.scroll().scrollLeft = 800;
+  const start = boundary(app, 1), writes = storage.writes.length, saved = app.saved()[tableKey()];
+  app.down(app.column(1), start); app.move(start - 10);
+  closeWidths(app.widths(), [32, 1158]);
+  app.cancel();
+  closeWidths(app.widths(), [32, 1168]);
+  close(app.scroll().scrollLeft, 800);
+  assert.equal(storage.writes.length, writes);
+  assert.deepEqual(app.saved()[tableKey()], saved, "cancel preserves remembered expanded widths as well as rendered tracks");
+  assert.equal(app.toggleButton().getAttribute("aria-expanded"), "false");
+  assert.equal(app.column().hidden, true);
+  app.toggle();
+  closeWidths(app.widths(), [600, 600]);
+});
+
+test("canceled, unchanged and returned-to-origin drags while collapsed preserve remembered expansion widths", () => {
+  for (const outcome of ["unchanged", "returned", "canceled"]) {
+    const app = fixture();
+    app.toggle();
+    const saved = app.saved()[tableKey()], writes = app.storage.writes.length;
+    const start = boundary(app, 1);
+    app.down(app.column(1), start);
+    if (outcome !== "unchanged") app.move(start + 40);
+    if (outcome === "canceled") app.cancel();
+    else {
+      if (outcome === "returned") app.move(start);
+      app.up(start);
+    }
+    closeWidths(app.widths(), [32, 568]);
+    assert.deepEqual(app.saved()[tableKey()], saved);
+    assert.equal(app.storage.writes.length, writes);
+    app.toggle();
+    closeWidths(app.widths(), [200, 400]);
+  }
 });

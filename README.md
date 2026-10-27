@@ -10,21 +10,23 @@ Each markdown file that is collected during the directory traversal will be tran
 
 Mermaid diagrams are rendered to SVG at build time by [`merman`](https://github.com/Latias94/merman), a headless Rust implementation of Mermaid. Nothing is fetched while building and no diagram runtime is shipped to the browser, so diagrams are visible even with JavaScript disabled.
 
-With JavaScript enabled, rectangular tables with one header row can be resized in
-the browser. Drag a header edge to give that column more or less space while the
-other columns keep their widths. Grips show two short, muted bars. Use the final
-column's grip to adjust the table's overall width while earlier columns stay
-fixed. The **Reset widths** icon in the footer restores automatic sizing. All
-controls stay within the table.
+With JavaScript enabled, rectangular tables with one header row can be resized
+and their columns collapsed in the browser. Drag a header edge to resize that
+column while the others keep their widths. A subtle header chevron collapses a
+column to a narrow strip and shares its space among the expanded columns; use
+the strip's chevron to restore it. At least one column stays open. The final
+column's grip adjusts the overall table width while keeping earlier columns
+fixed. The **Reset widths** icon restores automatic sizing and expands every
+column. All controls stay within the table.
 
-Each table's widths are remembered for the current browsing session across page
-navigation and reloads. A table that grows beyond the reading column uses the
-available main pane; larger tables scroll horizontally within their own frame.
-Tables placed in lists or blockquotes stay within their local scrolling area.
-Spanning and nested HTML tables stay unchanged. Changing or removing a header
-starts a new saved layout for that table; tables with the same headers keep
-separate settings by their order on the page. Without JavaScript, tables render
-as usual without resize controls.
+Each table's widths and collapsed columns are remembered for the current
+browsing session across page navigation and reloads. A table that grows beyond
+the reading column uses the available main pane; larger tables scroll
+horizontally within their own frame. Tables placed in lists or blockquotes stay
+within their local scrolling area. Spanning and nested HTML tables stay
+unchanged. Changing or removing a header starts a new saved layout for that
+table; tables with the same headers keep separate settings by their order on
+the page. Without JavaScript, tables render as usual without resize controls.
 
 Task list items (`- [ ]` and `- [x]`) render as checkboxes reflecting the marker in the source. They are read-only: the rendered page always matches the Markdown it was built from, and ticking a box in a browser is not a way to edit the file.
 

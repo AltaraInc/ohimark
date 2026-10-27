@@ -26,6 +26,7 @@
     code: '<svg class="ohm-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m9 8-5 4 5 4M15 8l5 4-5 4"/></svg>',
     sort: '<svg class="ohm-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 6h16M4 12h10M4 18h4M17 12v8m-3-3 3 3 3-3"/></svg>',
     reset: '<svg class="ohm-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 11a9 9 0 1 1 2.6 7M3 4v7h7"/></svg>',
+    chevronLeft: '<svg class="ohm-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m14 6-6 6 6 6"/></svg>',
     fullscreen: '<svg class="ohm-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3"/></svg>',
     fullscreenExit: '<svg class="ohm-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 3v3a2 2 0 0 1-2 2H3M16 3v3a2 2 0 0 0 2 2h3M21 16h-3a2 2 0 0 0-2 2v3M8 21v-3a2 2 0 0 0-2-2H3"/></svg>',
   };
@@ -1440,7 +1441,7 @@
   enhanceSidebarGroupScrolling();
 
   /* =======================================================================
-     7. Table widths: independent columns and best-effort per-page
+     7. Table columns: independent sizing, collapse and best-effort per-page
      preferences for the current browsing session.
      ======================================================================= */
 
@@ -1449,6 +1450,7 @@
     if (!tables.length) return;
 
     var minimum = 48;
+    var collapsedWidth = 32;
     var entries = [];
     var occurrences = new Map();
     var preferences = Object.create(null);
@@ -1494,6 +1496,49 @@
       }) && Number.isFinite(sum(widths));
     }
 
+    // Derive a layout from remembered widths and the mask, rather than from
+    // the previous toggle's redistribution. Toggle order cannot accumulate
+    // rounding or change the widths recovered when columns are reopened.
+    function project(expanded, collapsed, total) {
+      var hidden = collapsed.filter(function (value) { return value; }).length;
+      total = Math.max(total, hidden * collapsedWidth + (expanded.length - hidden) * minimum);
+      var remaining = total - hidden * collapsedWidth;
+      var widths = collapsed.map(function () { return collapsedWidth; });
+      var pending = expanded.map(function (_, index) { return index; }).filter(function (index) { return !collapsed[index]; });
+      while (pending.length) {
+        var weight = sum(pending.map(function (index) { return expanded[index]; }));
+        var scale = remaining / weight;
+        var narrow = pending.filter(function (index) { return expanded[index] * scale < minimum; });
+        if (!narrow.length) {
+          pending.forEach(function (index) { widths[index] = expanded[index] * scale; });
+          break;
+        }
+        narrow.forEach(function (index) { widths[index] = minimum; remaining -= minimum; });
+        pending = pending.filter(function (index) { return narrow.indexOf(index) === -1; });
+      }
+      return widths;
+    }
+
+    function validLayout(layout, count) {
+      if (Array.isArray(layout)) return validWidths(layout, count);
+      if (!layout || typeof layout !== "object" || !Array.isArray(layout.collapsed)
+        || layout.collapsed.length !== count || !layout.collapsed.every(function (value) { return typeof value === "boolean"; })
+        || !layout.collapsed.some(function (value) { return value; }) || !layout.collapsed.some(function (value) { return !value; })
+        || !validWidths(layout.expanded, count) || !Array.isArray(layout.widths) || layout.widths.length !== count) return false;
+      if (!layout.widths.every(function (width, index) {
+        return typeof width === "number" && Number.isFinite(width)
+          && (layout.collapsed[index] ? width === collapsedWidth : width >= minimum);
+      }) || !Number.isFinite(sum(layout.widths))) return false;
+      var expected = project(layout.expanded, layout.collapsed, sum(layout.widths));
+      return layout.widths.every(function (width, index) { return Math.abs(width - expected[index]) <= 0.01; });
+    }
+
+    function copyLayout(layout) {
+      return Array.isArray(layout) ? layout.slice() : {
+        widths: layout.widths.slice(), collapsed: layout.collapsed.slice(), expanded: layout.expanded.slice(),
+      };
+    }
+
     // A table viewport can break out of the prose measure, but never out of
     // the main pane. Nested tables retain the containing block's indentation.
     function viewport(entry, outerWidth) {
@@ -1524,6 +1569,31 @@
         handle.setAttribute("aria-valuetext", Math.round(widths[index]) + " pixels");
       });
       entry.reset.disabled = !entry.widths;
+    }
+
+    function syncColumns(entry) {
+      var open = entry.collapsed.filter(function (value) { return !value; }).length;
+      entry.cells.forEach(function (cells, index) {
+        var collapsed = entry.collapsed[index];
+        cells.forEach(function (record) {
+          if (collapsed && record.content.contains(document.activeElement) && entry.toggles[index]) entry.toggles[index].focus();
+          record.cell.classList.toggle("ohm-table-column-collapsed", collapsed);
+          record.content.hidden = collapsed;
+        });
+        var handle = entry.handles[index];
+        handle.hidden = collapsed;
+        handle.setAttribute("tabindex", collapsed ? "-1" : "0");
+        if (collapsed) handle.setAttribute("aria-hidden", "true");
+        else handle.removeAttribute("aria-hidden");
+        var toggle = entry.toggles[index];
+        if (toggle) {
+          var label = (collapsed ? "Expand column " : "Collapse column ") + (entry.labels[index] || (index + 1));
+          toggle.disabled = !collapsed && open === 1;
+          toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+          toggle.setAttribute("aria-label", label);
+          toggle.setAttribute("title", toggle.disabled ? "At least one column must remain expanded" : label);
+        }
+      });
     }
 
     function refreshEntry(entry) {
@@ -1560,6 +1630,7 @@
 
     function applyWidths(entry, widths) {
       entry.widths = widths ? widths.slice() : null;
+      syncColumns(entry);
       entry.table.classList.toggle("ohm-table--fixed", !!widths);
       if (widths) {
         if (!entry.colgroup) {
@@ -1595,9 +1666,34 @@
     }
 
     function save(entry) {
-      if (entry.widths) preferences[entry.key] = entry.widths.slice();
+      if (entry.widths) preferences[entry.key] = entry.collapsed.some(function (value) { return value; }) ? {
+        widths: entry.widths.slice(), collapsed: entry.collapsed.slice(), expanded: entry.expanded.slice(),
+      } : entry.widths.slice();
       else delete preferences[entry.key];
       writePreferences();
+    }
+
+    function rememberResize(entry) {
+      if (!entry.expanded) return;
+      entry.expanded = entry.expanded.map(function (width, index) { return entry.collapsed[index] ? width : entry.widths[index]; });
+      entry.total = sum(entry.widths);
+    }
+
+    function toggleColumn(entry, index) {
+      if (active) finishDrag(false);
+      if (!entry.collapsed[index] && entry.collapsed.filter(function (value) { return !value; }).length === 1) return;
+      var widths = readWidths(entry);
+      if (!widths) return;
+      if (!entry.expanded) {
+        entry.expanded = widths.slice();
+        entry.total = sum(widths);
+      }
+      entry.collapsed[index] = !entry.collapsed[index];
+      var hidden = entry.collapsed.filter(function (value) { return value; }).length;
+      entry.total = Math.max(entry.total, hidden * collapsedWidth + (widths.length - hidden) * minimum);
+      applyWidths(entry, project(entry.expanded, entry.collapsed, entry.total));
+      if (!hidden) { entry.expanded = null; entry.total = null; }
+      save(entry);
     }
 
     function different(left, right) {
@@ -1639,7 +1735,10 @@
       if (!commit || !drag.entry.widths || !different(drag.widths, drag.entry.widths)) {
         applyWidths(drag.entry, drag.previous);
         drag.entry.scroll.scrollLeft = drag.scrollLeft;
-      } else save(drag.entry);
+      } else {
+        rememberResize(drag.entry);
+        save(drag.entry);
+      }
       // Keep the initial scroll extent until the final dimensions are chosen.
       // Removing it earlier lets a shrinking canvas clamp scrollLeft between
       // pointer events and repeatedly apply the same apparent pointer delta.
@@ -1691,7 +1790,7 @@
     }
 
     function startDrag(event, entry, index, handle) {
-      if (active || event.isPrimary === false || (event.button !== undefined && event.button !== 0) || !Number.isFinite(event.clientX)) return;
+      if (entry.collapsed[index] || active || event.isPrimary === false || (event.button !== undefined && event.button !== 0) || !Number.isFinite(event.clientX)) return;
       measureChrome(entry);
       var widths = readWidths(entry);
       if (!widths) return;
@@ -1737,12 +1836,12 @@
       handle.addEventListener("pointerdown", function (event) { startDrag(event, entry, index, handle); });
       handle.addEventListener("keydown", function (event) {
         if (event.key === "Escape") { dragKey(event); return; }
-        if (active || (event.key !== "ArrowLeft" && event.key !== "ArrowRight")) return;
+        if (entry.collapsed[index] || active || (event.key !== "ArrowLeft" && event.key !== "ArrowRight")) return;
         var widths = readWidths(entry);
         if (!widths) return;
         var delta = (event.key === "ArrowLeft" ? -1 : 1) * (event.shiftKey ? 10 : 1);
         var next = resized(widths, index, sum(widths) + delta);
-        if (different(widths, next)) { applyWidths(entry, next); save(entry); }
+        if (different(widths, next)) { applyWidths(entry, next); rememberResize(entry); save(entry); }
         event.preventDefault();
         event.stopPropagation();
       });
@@ -1805,21 +1904,49 @@
       controlsRow.appendChild(controlsCell);
       controlsCell.appendChild(actions);
       actions.appendChild(reset);
+      var authoredCells = headers.map(function () { return []; });
+      rows.forEach(function (row) {
+        Array.from(row.children).filter(function (cell) { return cell.tagName === "TH" || cell.tagName === "TD"; }).forEach(function (cell, index) {
+          var content = document.createElement("div");
+          content.className = "ohm-table-cell-content";
+          while (cell.firstChild) content.appendChild(cell.firstChild);
+          cell.appendChild(content);
+          authoredCells[index].push({ cell: cell, content: content });
+        });
+      });
       var entry = {
         table: table, headers: headers, frame: frame, scroll: scroll, canvas: canvas, reset: reset,
         article: article, main: article.closest(".ohm-main"), breakout: parent === article,
         originalWidth: table.style.width || "", widths: null, colgroup: null, columns: null,
         chrome: 0, borderLeft: 0, key: JSON.stringify([headers.length, labels, occurrence]),
+        labels: labels, cells: authoredCells, collapsed: headers.map(function () { return false; }),
+        expanded: null, total: null, toggles: [],
       };
       table.classList.add("ohm-table-resizable");
+      table.classList.toggle("ohm-table--collapsible", headers.length > 1);
       entry.handles = headers.map(function (header, index) {
         header.classList.add("ohm-table-column-header");
         var handle = makeHandle(entry, index, "Resize column " + (labels[index] || (index + 1)));
         header.appendChild(handle);
         return handle;
       });
+      if (headers.length > 1) entry.toggles = headers.map(function (header, index) {
+        var toggle = document.createElement("button");
+        toggle.type = "button";
+        toggle.className = "ohm-table-column-toggle";
+        toggle.innerHTML = ICONS.chevronLeft;
+        toggle.addEventListener("click", function (event) {
+          event.stopPropagation();
+          toggleColumn(entry, index);
+        });
+        header.appendChild(toggle);
+        return toggle;
+      });
       reset.addEventListener("click", function () {
         if (active) finishDrag(false);
+        entry.collapsed = entry.collapsed.map(function () { return false; });
+        entry.expanded = null;
+        entry.total = null;
         applyWidths(entry, null);
         entry.scroll.scrollLeft = 0;
         save(entry);
@@ -1846,15 +1973,21 @@
           var known = new Map(entries.map(function (entry) { return [entry.key, entry]; }));
           Object.keys(saved).forEach(function (key) {
             var entry = known.get(key);
-            if (entry && validWidths(saved[key], entry.headers.length)) preferences[key] = saved[key].slice();
+            if (entry && validLayout(saved[key], entry.headers.length)) preferences[key] = copyLayout(saved[key]);
             else dirty = true;
           });
         } else if (storedValue !== null) dirty = true;
       } catch (err) { dirty = storedValue !== null; }
     }
     entries.forEach(function (entry) {
-      if (preferences[entry.key]) applyWidths(entry, preferences[entry.key]);
-      else refreshEntry(entry);
+      var layout = preferences[entry.key];
+      if (layout && !Array.isArray(layout)) {
+        entry.collapsed = layout.collapsed.slice();
+        entry.expanded = layout.expanded.slice();
+        entry.total = sum(layout.widths);
+      }
+      if (layout) applyWidths(entry, Array.isArray(layout) ? layout : layout.widths);
+      else { syncColumns(entry); refreshEntry(entry); }
     });
     if (dirty) writePreferences();
 

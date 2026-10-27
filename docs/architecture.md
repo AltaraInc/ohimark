@@ -188,13 +188,19 @@ JavaScript, the complete native navigation stays available without a group cap.
 
 The Markdown renderer emits ordinary tables and alignment attributes; it does not
 assign table IDs or widths. With JavaScript, simple rectangular content tables with
-one header row gain a scroll frame, header grips marked by two short bars, and a
-matching SVG reset icon inside a compact footer control row. All controls remain
-within the table; existing footer rows are preserved. Spanning cells, nested HTML
-tables and tables that already define column groups are left alone.
+one header row gain a scroll frame, header grips marked by two short bars, a subtle
+collapse/restore chevron in each header of multi-column tables, and a matching SVG
+reset icon inside a compact footer control row. All controls remain within the
+table; existing footer rows are preserved. Spanning cells, nested HTML tables and
+tables that already define column groups are left alone.
+
 Column drags change one width while preserving the others. The final column's grip
-also adjusts the total table width; the footer contains only Reset widths.
-A 48px minimum keeps columns usable.
+also adjusts the total table width; the footer contains only Reset widths. The
+chevrons collapse a column to a narrow strip and expand it again. Collapsed content
+is hidden, and its freed width is shared by expanded columns while the table keeps
+its overall width when the 48px minimum permits. At least one column remains open;
+single-column tables have no collapse controls. Reset returns to automatic widths
+and expands every column.
 
 Before any resize, each table keeps automatic layout. A manual or restored layout
 freezes measured tracks in pixels using fixed table layout. Top-level tables may break
@@ -203,13 +209,14 @@ overflow when a table is wider than that pane. Tables placed in lists or blockqu
 remain within their local scroll frame. Viewport changes adjust the frame bounds without
 changing the saved column widths.
 
-Widths are stored in a separate `sessionStorage` namespace, keyed by the resolved site
-home URL, current page and the table's normalized header labels, column count, and order
-among tables with identical headers. This preserves each table across page navigation
-and reloads during the current browser session. A header change creates a new layout;
-Reset removes just the selected table's preference. State validation and reads/writes are
-best-effort so blocked or stale storage does not disable the controls. Without
-JavaScript, tables retain their existing rendering and no resize controls appear.
+Widths and collapsed columns are stored in a separate `sessionStorage` namespace, keyed
+by the resolved site home URL, current page and the table's normalized header labels,
+column count, and order among tables with identical headers. This preserves each table
+across page navigation and reloads during the current browser session. A header change
+creates a new layout; Reset removes just the selected table's preference. State
+validation and reads/writes are best-effort so blocked or stale storage does not disable
+the controls. Without JavaScript, tables retain their existing rendering and no resize
+or collapse controls appear.
 
 ## Custom stylesheet
 

@@ -840,10 +840,97 @@ img {
   height: auto;
 }
 
+.ohm-content .ohm-table-cell-content {
+  display: contents;
+}
+
+.ohm-content .ohm-table-cell-content[hidden],
+.ohm-content .ohm-table-column-handle[hidden] {
+  display: none !important;
+}
+
 .ohm-content .ohm-table-column-header {
   position: relative;
   height: 1.5rem;
   overflow: visible;
+}
+
+.ohm-content table.ohm-table--collapsible .ohm-table-column-header > .ohm-table-cell-content {
+  display: block;
+  min-width: 0;
+  margin-inline-end: 36px;
+  overflow: hidden;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+
+/* Automatic columns reserve the full label and control width. Explicitly
+   sized columns can still shrink and truncate their header instead. */
+.ohm-content table.ohm-table--collapsible.ohm-table--fixed .ohm-table-column-header > .ohm-table-cell-content {
+  contain: inline-size;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ohm-content table.ohm-table-resizable .ohm-table-column-collapsed {
+  width: 32px;
+  min-width: 32px;
+  max-width: 32px;
+  padding-inline: 0;
+  overflow: hidden;
+}
+
+.ohm-content table.ohm-table-resizable .ohm-table-column-header.ohm-table-column-collapsed {
+  height: 32px;
+}
+
+.ohm-content .ohm-table-column-toggle {
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-end: 16px;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 24px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ohm-muted);
+  opacity: 0.6;
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+
+.ohm-content .ohm-table-column-toggle .ohm-icon {
+  width: 12px;
+  height: 12px;
+}
+
+.ohm-content .ohm-table-column-toggle:not(:disabled):hover,
+.ohm-content .ohm-table-column-toggle:focus-visible {
+  color: var(--ohm-accent);
+  opacity: 1;
+}
+
+.ohm-content .ohm-table-column-toggle:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.ohm-content table.ohm-table-resizable .ohm-table-column-collapsed > .ohm-table-column-toggle {
+  inset-inline-start: 50%;
+  inset-inline-end: auto;
+  width: 28px;
+  height: 28px;
+  transform: translate(-50%, -50%);
+}
+
+.ohm-content .ohm-table-column-collapsed > .ohm-table-column-toggle .ohm-icon {
+  transform: rotate(180deg);
 }
 
 .ohm-content .ohm-table-column-handle {
@@ -890,8 +977,9 @@ img {
   opacity: 1;
 }
 
-/* Keep the final boundary control, its focus ring, and indicator inside the
-   table's right edge so an otherwise fitting table does not gain overflow. */
+/* Contain grips beside collapse controls, including beside a neighboring
+   collapsed strip, and keep the final boundary inside the table. */
+.ohm-content table.ohm-table--collapsible .ohm-table-column-header > .ohm-table-column-handle,
 .ohm-content table.ohm-table-resizable > thead > tr > .ohm-table-column-header:last-child .ohm-table-column-handle {
   inset-inline-end: 2px;
 }
@@ -929,6 +1017,7 @@ img {
 }
 
 .ohm-content .ohm-table-column-handle:focus-visible,
+.ohm-content .ohm-table-column-toggle:focus-visible,
 .ohm-content .ohm-table-reset:focus-visible {
   outline: 2px solid var(--ohm-accent);
   outline-offset: -2px;
@@ -950,10 +1039,36 @@ img {
     width: 24px;
   }
 
+  .ohm-content table.ohm-table--collapsible .ohm-table-column-header > .ohm-table-cell-content {
+    margin-inline-end: 48px;
+  }
+
+  .ohm-content .ohm-table-column-toggle {
+    inset-inline-end: 26px;
+    width: 20px;
+    height: 28px;
+  }
+
   .ohm-content .ohm-table-actions .ohm-icon-button {
     flex-basis: 32px;
     width: 32px;
     height: 32px;
+  }
+}
+
+/* Narrow headers give the label its own line above the existing controls. */
+@media (max-width: 600px) {
+  .ohm-content table.ohm-table--collapsible .ohm-table-column-header:not(.ohm-table-column-collapsed) > .ohm-table-cell-content {
+    margin-inline-end: 0;
+    padding-block-end: 30px;
+  }
+
+  .ohm-content table.ohm-table--collapsible .ohm-table-column-header:not(.ohm-table-column-collapsed) > .ohm-table-column-toggle,
+  .ohm-content table.ohm-table--collapsible .ohm-table-column-header:not(.ohm-table-column-collapsed) > .ohm-table-column-handle {
+    inset-block-start: auto;
+    inset-block-end: 2px;
+    height: 28px;
+    transform: none;
   }
 }
 
